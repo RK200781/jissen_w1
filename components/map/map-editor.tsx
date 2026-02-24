@@ -5,9 +5,7 @@ import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Slider } from '@/components/ui/slider'
-import { Plus, Trash2, RefreshCw } from 'lucide-react'
+import { Plus, Trash2, PanelRightClose, PanelRightOpen } from 'lucide-react'
 import {
   loadMapById,
   saveMapById,
@@ -49,17 +47,13 @@ export default function MapEditor({ mapId, bounds }: MapEditorProps) {
   const [selectedIcon, setSelectedIcon] = useState('🛒')
   const [addingFacility, setAddingFacility] = useState(false)
   const [isGeneratingBase, setIsGeneratingBase] = useState(false)
-  const [roadWidth, setRoadWidth] = useState(4)
   const [message, setMessage] = useState<string | null>(null)
+  const [isFacilityPanelOpen, setIsFacilityPanelOpen] = useState(false)
 
   useEffect(() => {
     if (!mapContainer.current) return
 
-    const mapBounds = L.latLngBounds(
-      [bounds.south, bounds.west],
-      [bounds.north, bounds.east],
-    )
-
+    const mapBounds = L.latLngBounds([bounds.south, bounds.west], [bounds.north, bounds.east])
     map.current = L.map(mapContainer.current).fitBounds(mapBounds)
 
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -91,28 +85,20 @@ export default function MapEditor({ mapId, bounds }: MapEditorProps) {
   }, [mapId, bounds])
 
   useEffect(() => {
-    if (baseFeatureData) {
-      renderBaseFeatures(baseFeatureData, roadWidth)
-    }
-  }, [baseFeatureData, roadWidth])
+    if (!baseFeatureData) return
 
-  const persistMap = (updater: Parameters<typeof saveMapById>[1]) => {
-    saveMapById(mapId, updater)
-  }
-
-  const renderBaseFeatures = (data: BaseFeatureData, width: number) => {
     roadsLayer.current.clearLayers()
     buildingsLayer.current.clearLayers()
 
-    data.roads.forEach((road) => {
+    baseFeatureData.roads.forEach((road) => {
       L.polyline(road, {
         color: '#64748b',
-        weight: width,
+        weight: 4,
         opacity: 0.95,
       }).addTo(roadsLayer.current)
     })
 
-    data.buildings.forEach((building) => {
+    baseFeatureData.buildings.forEach((building) => {
       L.polygon(building, {
         color: '#334155',
         weight: 1,
@@ -120,6 +106,10 @@ export default function MapEditor({ mapId, bounds }: MapEditorProps) {
         fillOpacity: 0.65,
       }).addTo(buildingsLayer.current)
     })
+  }, [baseFeatureData])
+
+  const persistMap = (updater: Parameters<typeof saveMapById>[1]) => {
+    saveMapById(mapId, updater)
   }
 
   const generateBaseFeatureData = async () => {
@@ -142,9 +132,7 @@ out geom;
         body: query,
       })
 
-      if (!response.ok) {
-        throw new Error('overpass_failed')
-      }
+      if (!response.ok) throw new Error('overpass_failed')
 
       const json = await response.json()
       const elements = (json.elements ?? []) as OverpassWay[]
@@ -157,13 +145,8 @@ out geom;
 
         const latLngs = el.geometry.map((point) => [point.lat, point.lon] as [number, number])
 
-        if (el.tags?.highway) {
-          roads.push(latLngs)
-        }
-
-        if (el.tags?.building && latLngs.length >= 3) {
-          buildings.push(latLngs)
-        }
+        if (el.tags?.highway) roads.push(latLngs)
+        if (el.tags?.building && latLngs.length >= 3) buildings.push(latLngs)
       })
 
       const generated = { roads, buildings }
@@ -189,11 +172,13 @@ out geom;
 
     marker.on('dragend', () => {
       const newPos = marker.getLatLng()
-      const next = facilities.map((f) =>
-        f.id === facility.id ? { ...f, location: [newPos.lat, newPos.lng] as [number, number] } : f,
-      )
-      setFacilities(next)
-      persistMap((current) => ({ ...current, facilities: next }))
+      setFacilities((prev) => {
+        const next = prev.map((f) =>
+          f.id === facility.id ? { ...f, location: [newPos.lat, newPos.lng] as [number, number] } : f,
+        )
+        persistMap((current) => ({ ...current, facilities: next }))
+        return next
+      })
     })
 
     markers.current.set(facility.id, marker)
@@ -204,8 +189,8 @@ out geom;
     if (!newFacilityName || !map.current) return
 
     setAddingFacility(true)
-
     const center = map.current.getCenter()
+
     const newFacility: Facility = {
       id: crypto.randomUUID(),
       name: newFacilityName,
@@ -213,19 +198,23 @@ out geom;
       icon: selectedIcon,
     }
 
-    const next = [...facilities, newFacility]
-    setFacilities(next)
-    addMarker(newFacility)
-    persistMap((current) => ({ ...current, facilities: next }))
+    setFacilities((prev) => {
+      const next = [...prev, newFacility]
+      persistMap((current) => ({ ...current, facilities: next }))
+      return next
+    })
 
+    addMarker(newFacility)
     setNewFacilityName('')
     setAddingFacility(false)
   }
 
   const handleDeleteFacility = (facilityId: string) => {
-    const next = facilities.filter((f) => f.id !== facilityId)
-    setFacilities(next)
-    persistMap((current) => ({ ...current, facilities: next }))
+    setFacilities((prev) => {
+      const next = prev.filter((f) => f.id !== facilityId)
+      persistMap((current) => ({ ...current, facilities: next }))
+      return next
+    })
 
     const marker = markers.current.get(facilityId)
     if (marker && map.current) map.current.removeLayer(marker)
@@ -233,84 +222,61 @@ out geom;
   }
 
   return (
-    <div className="flex h-full gap-4 p-4">
-      <div className="flex-1 rounded-lg border overflow-hidden">
+    <div className="relative h-full w-full">
+      <div className="h-full w-full rounded-none border-0 overflow-hidden">
         <div ref={mapContainer} className="w-full h-full" />
       </div>
 
-      <div className="w-80 flex flex-col gap-4">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">土台データ（道路・建物）</CardTitle>
-            <CardDescription>範囲内のOpenStreetMapデータからベースを自動生成</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">道幅（表示）: {roadWidth}px</label>
-              <Slider
-                value={[roadWidth]}
-                min={1}
-                max={12}
-                step={1}
-                onValueChange={(v) => setRoadWidth(v[0])}
-              />
+      <div className="absolute top-4 right-4 z-[500] flex gap-2">
+        <Button
+          variant="secondary"
+          size="sm"
+          className="shadow"
+          onClick={() => setIsFacilityPanelOpen((prev) => !prev)}
+        >
+          {isFacilityPanelOpen ? <PanelRightClose className="w-4 h-4" /> : <PanelRightOpen className="w-4 h-4" />}施設
+        </Button>
+        <Button size="sm" className="shadow" onClick={generateBaseFeatureData} disabled={isGeneratingBase}>
+          {isGeneratingBase ? '再生成中...' : '土台再生成'}
+        </Button>
+      </div>
+
+      {isFacilityPanelOpen && (
+        <div className="absolute top-16 right-4 z-[500] w-[360px] max-w-[calc(100vw-2rem)] max-h-[calc(100%-5rem)] overflow-hidden rounded-lg border bg-card shadow-lg flex flex-col">
+          <div className="p-4 border-b">
+            <p className="font-semibold text-sm">施設を追加</p>
+            <p className="text-xs text-muted-foreground">追加後は地図上でドラッグして位置調整</p>
+          </div>
+
+          <form onSubmit={handleAddFacility} className="p-4 space-y-3 border-b">
+            <Input
+              placeholder="施設名を入力"
+              value={newFacilityName}
+              onChange={(e) => setNewFacilityName(e.target.value)}
+              disabled={addingFacility}
+            />
+            <div className="grid grid-cols-6 gap-2">
+              {FACILITY_ICONS.map((icon) => (
+                <button
+                  key={icon.value}
+                  type="button"
+                  onClick={() => setSelectedIcon(icon.value)}
+                  className={`p-2 rounded border text-2xl transition-all ${
+                    selectedIcon === icon.value ? 'border-primary bg-primary/10' : 'border-muted hover:border-primary/50'
+                  }`}
+                  title={icon.label}
+                >
+                  {icon.value}
+                </button>
+              ))}
             </div>
-            <Button onClick={generateBaseFeatureData} disabled={isGeneratingBase} className="w-full gap-2">
-              <RefreshCw className="w-4 h-4" />
-              {isGeneratingBase ? '土台を生成中...' : '土台を再生成'}
+            <Button type="submit" disabled={addingFacility || !newFacilityName} className="w-full gap-2">
+              <Plus className="w-4 h-4" />追加
             </Button>
-            {message && <p className="text-xs text-muted-foreground">{message}</p>}
-          </CardContent>
-        </Card>
+          </form>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">施設を追加</CardTitle>
-            <CardDescription>あとからドラッグで位置変更できます</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleAddFacility} className="space-y-4">
-              <div className="space-y-2">
-                <label className="text-sm font-medium">施設名</label>
-                <Input
-                  placeholder="施設名を入力"
-                  value={newFacilityName}
-                  onChange={(e) => setNewFacilityName(e.target.value)}
-                  disabled={addingFacility}
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium">アイコン</label>
-                <div className="grid grid-cols-6 gap-2">
-                  {FACILITY_ICONS.map((icon) => (
-                    <button
-                      key={icon.value}
-                      type="button"
-                      onClick={() => setSelectedIcon(icon.value)}
-                      className={`p-2 rounded border text-2xl transition-all ${
-                        selectedIcon === icon.value
-                          ? 'border-primary bg-primary/10'
-                          : 'border-muted hover:border-primary/50'
-                      }`}
-                      title={icon.label}
-                    >
-                      {icon.value}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <Button type="submit" disabled={addingFacility || !newFacilityName} className="w-full gap-2">
-                <Plus className="w-4 h-4" />追加
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
-
-        <Card className="flex-1 overflow-hidden flex flex-col">
-          <CardHeader>
-            <CardTitle className="text-lg">施設一覧 ({facilities.length})</CardTitle>
-          </CardHeader>
-          <CardContent className="flex-1 overflow-y-auto space-y-2">
+          <div className="p-4 border-b text-sm font-semibold">施設一覧 ({facilities.length})</div>
+          <div className="flex-1 overflow-y-auto p-4 space-y-2 min-h-0">
             {facilities.length === 0 ? (
               <p className="text-sm text-muted-foreground">施設がまだ追加されていません</p>
             ) : (
@@ -330,9 +296,10 @@ out geom;
                 </div>
               ))
             )}
-          </CardContent>
-        </Card>
-      </div>
+          </div>
+          {message && <p className="px-4 pb-4 text-xs text-muted-foreground">{message}</p>}
+        </div>
+      )}
     </div>
   )
 }
