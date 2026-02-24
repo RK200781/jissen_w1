@@ -66,9 +66,9 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
       state.tempRectangle.addTo(mapInstance)
     }
 
-    const onMouseUp = (e: L.LeafletMouseEvent) => {
+    const onMouseUp = (e: L.LeafletMouseEvent | L.LeafletEvent) => {
       // Only complete range selection if double-click was detected
-      if (!state.isDrawing || !state.isDoubleClick || !state.startLatLng) {
+      if (!state.isDrawing || !state.isDoubleClick || !state.startLatLng || !('latlng' in e)) {
         state.isDrawing = false
         state.isDoubleClick = false
         return
