@@ -1,11 +1,10 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
-import L from 'leaflet'
-import 'leaflet/dist/leaflet.css'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Plus, Trash2, PanelRightClose, PanelRightOpen } from 'lucide-react'
+import { Slider } from '@/components/ui/slider'
+import { Plus, Trash2, PanelRightClose, PanelRightOpen, RefreshCw } from 'lucide-react'
 import {
   loadMapById,
   saveMapById,
@@ -34,40 +33,27 @@ interface OverpassWay {
   tags?: Record<string, string>
 }
 
-export default function MapEditor({ mapId, bounds }: MapEditorProps) {
-  const mapContainer = useRef<HTMLDivElement>(null)
-  const map = useRef<L.Map | null>(null)
-  const roadsLayer = useRef<L.FeatureGroup>(L.featureGroup())
-  const buildingsLayer = useRef<L.FeatureGroup>(L.featureGroup())
-  const markers = useRef<Map<string, L.Marker>>(new Map())
+const CANVAS_WIDTH = 1400
+const CANVAS_HEIGHT = 900
 
+export default function MapEditor({ mapId, bounds }: MapEditorProps) {
   const [facilities, setFacilities] = useState<Facility[]>([])
   const [baseFeatureData, setBaseFeatureData] = useState<BaseFeatureData | null>(null)
   const [newFacilityName, setNewFacilityName] = useState('')
   const [selectedIcon, setSelectedIcon] = useState('🛒')
   const [addingFacility, setAddingFacility] = useState(false)
   const [isGeneratingBase, setIsGeneratingBase] = useState(false)
-  const [message, setMessage] = useState<string | null>(null)
   const [isFacilityPanelOpen, setIsFacilityPanelOpen] = useState(false)
+  const [message, setMessage] = useState<string | null>(null)
+  const [roadWidth, setRoadWidth] = useState(4)
+  const [draggingFacilityId, setDraggingFacilityId] = useState<string | null>(null)
+  const svgRef = useRef<SVGSVGElement>(null)
 
   useEffect(() => {
-    if (!mapContainer.current) return
-
-    const mapBounds = L.latLngBounds([bounds.south, bounds.west], [bounds.north, bounds.east])
-    map.current = L.map(mapContainer.current).fitBounds(mapBounds)
-
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap contributors',
-      maxZoom: 19,
-    }).addTo(map.current)
-
-    roadsLayer.current.addTo(map.current)
-    buildingsLayer.current.addTo(map.current)
-
     const localMap = loadMapById(mapId)
+
     if (localMap?.facilities) {
       setFacilities(localMap.facilities)
-      localMap.facilities.forEach((facility) => addMarker(facility))
     }
 
     if (localMap?.baseFeatureData) {
@@ -75,42 +61,33 @@ export default function MapEditor({ mapId, bounds }: MapEditorProps) {
     } else {
       generateBaseFeatureData()
     }
-
-    return () => {
-      if (map.current) {
-        map.current.remove()
-        map.current = null
-      }
-    }
-  }, [mapId, bounds])
-
-  useEffect(() => {
-    if (!baseFeatureData) return
-
-    roadsLayer.current.clearLayers()
-    buildingsLayer.current.clearLayers()
-
-    baseFeatureData.roads.forEach((road) => {
-      L.polyline(road, {
-        color: '#64748b',
-        weight: 4,
-        opacity: 0.95,
-      }).addTo(roadsLayer.current)
-    })
-
-    baseFeatureData.buildings.forEach((building) => {
-      L.polygon(building, {
-        color: '#334155',
-        weight: 1,
-        fillColor: '#cbd5e1',
-        fillOpacity: 0.65,
-      }).addTo(buildingsLayer.current)
-    })
-  }, [baseFeatureData])
+  }, [mapId])
 
   const persistMap = (updater: Parameters<typeof saveMapById>[1]) => {
     saveMapById(mapId, updater)
   }
+
+  const project = useMemo(() => {
+    const lngRange = Math.max(bounds.east - bounds.west, 0.000001)
+    const latRange = Math.max(bounds.north - bounds.south, 0.000001)
+
+    return (lat: number, lng: number): [number, number] => {
+      const x = ((lng - bounds.west) / lngRange) * CANVAS_WIDTH
+      const y = ((bounds.north - lat) / latRange) * CANVAS_HEIGHT
+      return [x, y]
+    }
+  }, [bounds])
+
+  const unproject = useMemo(() => {
+    const lngRange = Math.max(bounds.east - bounds.west, 0.000001)
+    const latRange = Math.max(bounds.north - bounds.south, 0.000001)
+
+    return (x: number, y: number): [number, number] => {
+      const lng = bounds.west + (x / CANVAS_WIDTH) * lngRange
+      const lat = bounds.north - (y / CANVAS_HEIGHT) * latRange
+      return [lat, lng]
+    }
+  }, [bounds])
 
   const generateBaseFeatureData = async () => {
     setIsGeneratingBase(true)
@@ -136,15 +113,12 @@ out geom;
 
       const json = await response.json()
       const elements = (json.elements ?? []) as OverpassWay[]
-
       const roads: [number, number][][] = []
       const buildings: [number, number][][] = []
 
       elements.forEach((el) => {
         if (el.type !== 'way' || !el.geometry || el.geometry.length < 2) return
-
-        const latLngs = el.geometry.map((point) => [point.lat, point.lon] as [number, number])
-
+        const latLngs = el.geometry.map((p) => [p.lat, p.lon] as [number, number])
         if (el.tags?.highway) roads.push(latLngs)
         if (el.tags?.building && latLngs.length >= 3) buildings.push(latLngs)
       })
@@ -160,41 +134,19 @@ out geom;
     }
   }
 
-  const addMarker = (facility: Facility) => {
-    if (!map.current) return
-
-    const marker = L.marker(facility.location, {
-      title: facility.name,
-      draggable: true,
-    })
-      .bindPopup(`<strong>${facility.name}</strong> ${facility.icon}`)
-      .addTo(map.current)
-
-    marker.on('dragend', () => {
-      const newPos = marker.getLatLng()
-      setFacilities((prev) => {
-        const next = prev.map((f) =>
-          f.id === facility.id ? { ...f, location: [newPos.lat, newPos.lng] as [number, number] } : f,
-        )
-        persistMap((current) => ({ ...current, facilities: next }))
-        return next
-      })
-    })
-
-    markers.current.set(facility.id, marker)
-  }
-
   const handleAddFacility = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!newFacilityName || !map.current) return
+    if (!newFacilityName) return
 
     setAddingFacility(true)
-    const center = map.current.getCenter()
+
+    const centerLat = (bounds.north + bounds.south) / 2
+    const centerLng = (bounds.east + bounds.west) / 2
 
     const newFacility: Facility = {
       id: crypto.randomUUID(),
       name: newFacilityName,
-      location: [center.lat, center.lng],
+      location: [centerLat, centerLng],
       icon: selectedIcon,
     }
 
@@ -204,7 +156,6 @@ out geom;
       return next
     })
 
-    addMarker(newFacility)
     setNewFacilityName('')
     setAddingFacility(false)
   }
@@ -215,37 +166,145 @@ out geom;
       persistMap((current) => ({ ...current, facilities: next }))
       return next
     })
-
-    const marker = markers.current.get(facilityId)
-    if (marker && map.current) map.current.removeLayer(marker)
-    markers.current.delete(facilityId)
   }
 
-  return (
-    <div className="relative h-full w-full">
-      <div className="h-full w-full rounded-none border-0 overflow-hidden">
-        <div ref={mapContainer} className="w-full h-full" />
-      </div>
+  const updateFacilityPositionFromPointer = (facilityId: string, clientX: number, clientY: number) => {
+    const svg = svgRef.current
+    if (!svg) return
 
-      <div className="absolute top-4 right-4 z-[500] flex gap-2">
+    const rect = svg.getBoundingClientRect()
+    if (rect.width === 0 || rect.height === 0) return
+
+    const x = ((clientX - rect.left) / rect.width) * CANVAS_WIDTH
+    const y = ((clientY - rect.top) / rect.height) * CANVAS_HEIGHT
+
+    const clampedX = Math.max(0, Math.min(CANVAS_WIDTH, x))
+    const clampedY = Math.max(0, Math.min(CANVAS_HEIGHT, y))
+    const [lat, lng] = unproject(clampedX, clampedY)
+    const location: [number, number] = [lat, lng]
+
+    setFacilities((prev) => {
+      const next = prev.map((f) => (f.id === facilityId ? { ...f, location } : f))
+      persistMap((current) => ({ ...current, facilities: next }))
+      return next
+    })
+  }
+
+  const roads = baseFeatureData?.roads ?? []
+  const buildings = baseFeatureData?.buildings ?? []
+
+  return (
+    <div className="relative h-full w-full bg-muted/30">
+      <div className="absolute top-4 right-4 z-20 flex gap-2">
         <Button
           variant="secondary"
           size="sm"
           className="shadow"
           onClick={() => setIsFacilityPanelOpen((prev) => !prev)}
         >
-          {isFacilityPanelOpen ? <PanelRightClose className="w-4 h-4" /> : <PanelRightOpen className="w-4 h-4" />}施設
+          {isFacilityPanelOpen ? <PanelRightClose className="w-4 h-4" /> : <PanelRightOpen className="w-4 h-4" />}
+          施設
         </Button>
-        <Button size="sm" className="shadow" onClick={generateBaseFeatureData} disabled={isGeneratingBase}>
+        <Button size="sm" className="shadow gap-1" onClick={generateBaseFeatureData} disabled={isGeneratingBase}>
+          <RefreshCw className="w-4 h-4" />
           {isGeneratingBase ? '再生成中...' : '土台再生成'}
         </Button>
       </div>
 
+      <div className="h-full w-full p-4">
+        <div className="h-full w-full rounded-lg border bg-white overflow-hidden">
+          <svg
+            ref={svgRef}
+            viewBox={`0 0 ${CANVAS_WIDTH} ${CANVAS_HEIGHT}`}
+            className="w-full h-full touch-none"
+            onPointerMove={(e) => {
+              if (!draggingFacilityId) return
+              updateFacilityPositionFromPointer(draggingFacilityId, e.clientX, e.clientY)
+            }}
+            onPointerUp={() => setDraggingFacilityId(null)}
+            onPointerLeave={() => setDraggingFacilityId(null)}
+          >
+            <rect x={0} y={0} width={CANVAS_WIDTH} height={CANVAS_HEIGHT} fill="#f8fafc" />
+
+            {buildings.map((building, idx) => {
+              const points = building
+                .map(([lat, lng]) => {
+                  const [x, y] = project(lat, lng)
+                  return `${x},${y}`
+                })
+                .join(' ')
+
+              return (
+                <polygon
+                  key={`b-${idx}`}
+                  points={points}
+                  fill="#cbd5e1"
+                  stroke="#475569"
+                  strokeWidth={1}
+                  fillOpacity={0.75}
+                />
+              )
+            })}
+
+            {roads.map((road, idx) => {
+              const points = road
+                .map(([lat, lng]) => {
+                  const [x, y] = project(lat, lng)
+                  return `${x},${y}`
+                })
+                .join(' ')
+
+              return (
+                <polyline
+                  key={`r-${idx}`}
+                  points={points}
+                  fill="none"
+                  stroke="#64748b"
+                  strokeWidth={roadWidth}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  opacity={0.95}
+                />
+              )
+            })}
+
+            {facilities.map((facility) => {
+              const [x, y] = project(facility.location[0], facility.location[1])
+              return (
+                <g
+                  key={facility.id}
+                  transform={`translate(${x}, ${y})`}
+                  style={{ cursor: 'grab' }}
+                  onPointerDown={(e) => {
+                    e.preventDefault()
+                    ;(e.currentTarget as SVGGElement).setPointerCapture(e.pointerId)
+                    setDraggingFacilityId(facility.id)
+                  }}
+                >
+                  <circle r={14} fill="#ffffff" stroke="#0f172a" strokeWidth={1.5} />
+                  <text textAnchor="middle" dominantBaseline="central" fontSize={14}>
+                    {facility.icon}
+                  </text>
+                </g>
+              )
+            })}
+          </svg>
+        </div>
+      </div>
+
       {isFacilityPanelOpen && (
-        <div className="absolute top-16 right-4 z-[500] w-[360px] max-w-[calc(100vw-2rem)] max-h-[calc(100%-5rem)] overflow-hidden rounded-lg border bg-card shadow-lg flex flex-col">
+        <div className="absolute top-16 right-4 z-20 w-[360px] max-w-[calc(100vw-2rem)] max-h-[calc(100%-5rem)] overflow-hidden rounded-lg border bg-card shadow-lg flex flex-col">
+          <div className="p-4 border-b space-y-2">
+            <p className="font-semibold text-sm">土台編集</p>
+            <div>
+              <label className="text-xs text-muted-foreground">道幅: {roadWidth}px</label>
+              <Slider value={[roadWidth]} min={1} max={12} step={1} onValueChange={(v) => setRoadWidth(v[0])} />
+            </div>
+          </div>
+
           <div className="p-4 border-b">
             <p className="font-semibold text-sm">施設を追加</p>
-            <p className="text-xs text-muted-foreground">追加後は地図上でドラッグして位置調整</p>
+            <p className="text-xs text-muted-foreground">追加後は土台上でドラッグして位置調整</p>
           </div>
 
           <form onSubmit={handleAddFacility} className="p-4 space-y-3 border-b">
@@ -297,6 +356,7 @@ out geom;
               ))
             )}
           </div>
+
           {message && <p className="px-4 pb-4 text-xs text-muted-foreground">{message}</p>}
         </div>
       )}
