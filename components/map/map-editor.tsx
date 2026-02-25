@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Slider } from '@/components/ui/slider'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import { Plus, Trash2, PanelRightClose, PanelRightOpen, RefreshCw } from 'lucide-react'
 import {
   loadMapById,
@@ -356,27 +357,29 @@ out geom;
           </form>
 
           <div className="p-4 border-b text-sm font-semibold">施設一覧 ({facilities.length})</div>
-          <div className="flex-1 overflow-y-auto p-4 space-y-2 min-h-0">
-            {facilities.length === 0 ? (
-              <p className="text-sm text-muted-foreground">施設がまだ追加されていません</p>
-            ) : (
-              facilities.map((facility) => (
-                <div key={facility.id} className="flex items-center justify-between p-2 rounded border hover:bg-muted">
-                  <div className="flex items-center gap-2 flex-1 min-w-0">
-                    <span className="text-lg">{facility.icon}</span>
-                    <span className="text-sm font-medium truncate">{facility.name}</span>
+          <ScrollArea className="flex-1 min-h-0">
+            <div className="p-4 space-y-2">
+              {facilities.length === 0 ? (
+                <p className="text-sm text-muted-foreground">施設がまだ追加されていません</p>
+              ) : (
+                facilities.map((facility) => (
+                  <div key={facility.id} className="flex items-center justify-between p-2 rounded border hover:bg-muted">
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                      <span className="text-lg">{facility.icon}</span>
+                      <span className="text-sm font-medium truncate">{facility.name}</span>
+                    </div>
+                    <button
+                      onClick={() => handleDeleteFacility(facility.id)}
+                      className="p-1 text-destructive hover:bg-destructive/10 rounded"
+                      title="削除"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                   </div>
-                  <button
-                    onClick={() => handleDeleteFacility(facility.id)}
-                    className="p-1 text-destructive hover:bg-destructive/10 rounded"
-                    title="削除"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              ))
-            )}
-          </div>
+                ))
+              )}
+            </div>
+          </ScrollArea>
 
           {message && <p className="px-4 pb-4 text-xs text-muted-foreground">{message}</p>}
         </div>
