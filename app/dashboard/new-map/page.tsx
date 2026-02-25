@@ -98,7 +98,7 @@ export default function NewMapPage() {
             <Card className="h-full">
               <CardHeader>
                 <CardTitle>マップ範囲を選択</CardTitle>
-                <CardDescription>マップに含める地域を矩形で選択してください</CardDescription>
+                <CardDescription>矩形または自由ポリゴンで範囲を選択してください（保存は外接矩形）</CardDescription>
               </CardHeader>
               <CardContent>
                 <RangeSelectorMap onBoundsChange={setSelectedBounds} />
