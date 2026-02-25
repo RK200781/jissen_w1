@@ -5,26 +5,19 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Plus, LogOut, Map } from 'lucide-react'
-
-interface MapProject {
-  id: string
-  name: string
-  description: string
-  created_at: string
-}
+import { Plus, LogOut, Map, Home } from 'lucide-react'
+import { loadMaps, saveMaps, type LocalMapData } from '@/lib/local-maps'
 
 export default function DashboardPage() {
-  const [maps, setMaps] = useState<MapProject[]>([])
+  const [maps, setMaps] = useState<LocalMapData[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const router = useRouter()
 
   useEffect(() => {
-    // Simulate loading - in production, this would call the actual API
-    setMaps([])
+    setMaps(loadMaps())
     setIsLoading(false)
-  }, [router])
+  }, [])
 
   const handleLogout = async () => {
     router.push('/')
@@ -32,7 +25,10 @@ export default function DashboardPage() {
 
   const handleDeleteMap = async (mapId: string) => {
     if (!confirm('このマップを削除しますか？')) return
-    setMaps(maps.filter((m) => m.id !== mapId))
+
+    const next = maps.filter((m) => m.id !== mapId)
+    setMaps(next)
+    saveMaps(next)
   }
 
   return (
@@ -40,10 +36,18 @@ export default function DashboardPage() {
       <header className="border-b bg-card">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
           <h1 className="text-2xl font-bold">Locap ダッシュボード</h1>
-          <Button variant="outline" size="sm" onClick={handleLogout} className="gap-2">
-            <LogOut className="w-4 h-4" />
-            ログアウト
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button asChild variant="ghost" size="sm" className="gap-2">
+              <Link href="/">
+                <Home className="w-4 h-4" />
+                ホームへ
+              </Link>
+            </Button>
+            <Button variant="outline" size="sm" onClick={handleLogout} className="gap-2">
+              <LogOut className="w-4 h-4" />
+              ログアウト
+            </Button>
+          </div>
         </div>
       </header>
 
@@ -84,7 +88,7 @@ export default function DashboardPage() {
               <Card key={map.id} className="hover:shadow-lg transition-shadow">
                 <CardHeader>
                   <CardTitle className="text-lg">{map.name}</CardTitle>
-                  <CardDescription>{map.description}</CardDescription>
+                  <CardDescription>{map.description ?? '説明なし'}</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="flex gap-2">
