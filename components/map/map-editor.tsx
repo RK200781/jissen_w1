@@ -4,7 +4,6 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Slider } from '@/components/ui/slider'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import { Plus, Trash2, PanelRightClose, PanelRightOpen, RefreshCw } from 'lucide-react'
 import {
   loadMapById,
@@ -357,7 +356,7 @@ out geom;
           </form>
 
           <div className="p-4 border-b text-sm font-semibold">施設一覧 ({facilities.length})</div>
-          <ScrollArea className="flex-1 min-h-0">
+          <div className="flex-1 min-h-0 overflow-y-scroll">
             <div className="p-4 space-y-2">
               {facilities.length === 0 ? (
                 <p className="text-sm text-muted-foreground">施設がまだ追加されていません</p>
@@ -379,7 +378,7 @@ out geom;
                 ))
               )}
             </div>
-          </ScrollArea>
+          </div>
 
           {message && <p className="px-4 pb-4 text-xs text-muted-foreground">{message}</p>}
         </div>
