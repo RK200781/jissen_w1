@@ -42,6 +42,7 @@ export default function MapEditor({ mapId, bounds }: MapEditorProps) {
   const [newFacilityName, setNewFacilityName] = useState('')
   const [selectedIcon, setSelectedIcon] = useState('🛒')
   const [addingFacility, setAddingFacility] = useState(false)
+  const [placementCount, setPlacementCount] = useState(1)
   const [isGeneratingBase, setIsGeneratingBase] = useState(false)
   const [isFacilityPanelOpen, setIsFacilityPanelOpen] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
@@ -142,16 +143,25 @@ out geom;
 
     const centerLat = (bounds.north + bounds.south) / 2
     const centerLng = (bounds.east + bounds.west) / 2
+    const count = Math.max(1, Math.min(50, Math.floor(placementCount || 1)))
 
-    const newFacility: Facility = {
-      id: crypto.randomUUID(),
-      name: newFacilityName,
-      location: [centerLat, centerLng],
-      icon: selectedIcon,
-    }
+    const facilitiesToAdd: Facility[] = Array.from({ length: count }, (_, i) => {
+      const ring = Math.floor(i / 8) + 1
+      const angle = (i % 8) * (Math.PI / 4)
+      const latOffset = Math.sin(angle) * ring * 0.0004
+      const lngOffset = Math.cos(angle) * ring * 0.0004
+      const location: [number, number] = [centerLat + latOffset, centerLng + lngOffset]
+
+      return {
+        id: crypto.randomUUID(),
+        name: count > 1 ? `${newFacilityName}${i + 1}` : newFacilityName,
+        location,
+        icon: selectedIcon,
+      }
+    })
 
     setFacilities((prev) => {
-      const next = [...prev, newFacility]
+      const next = [...prev, ...facilitiesToAdd]
       persistMap((current) => ({ ...current, facilities: next }))
       return next
     })
@@ -303,8 +313,8 @@ out geom;
           </div>
 
           <div className="p-4 border-b">
-            <p className="font-semibold text-sm">施設を追加</p>
-            <p className="text-xs text-muted-foreground">追加後は土台上でドラッグして位置調整</p>
+            <p className="font-semibold text-sm">オブジェクトを追加</p>
+            <p className="text-xs text-muted-foreground">個数を指定して複数同時に配置できます（追加後はドラッグで位置調整）</p>
           </div>
 
           <form onSubmit={handleAddFacility} className="p-4 space-y-3 border-b">
@@ -314,6 +324,17 @@ out geom;
               onChange={(e) => setNewFacilityName(e.target.value)}
               disabled={addingFacility}
             />
+            <div className="space-y-2">
+              <label className="text-xs text-muted-foreground">同時配置数</label>
+              <Input
+                type="number"
+                min={1}
+                max={50}
+                value={placementCount}
+                onChange={(e) => setPlacementCount(Number(e.target.value) || 1)}
+                disabled={addingFacility}
+              />
+            </div>
             <div className="grid grid-cols-6 gap-2">
               {FACILITY_ICONS.map((icon) => (
                 <button
@@ -330,7 +351,7 @@ out geom;
               ))}
             </div>
             <Button type="submit" disabled={addingFacility || !newFacilityName} className="w-full gap-2">
-              <Plus className="w-4 h-4" />追加
+              <Plus className="w-4 h-4" />{placementCount > 1 ? `${placementCount}個まとめて追加` : "追加"}
             </Button>
           </form>
 
