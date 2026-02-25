@@ -1,63 +1,44 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useRouter, useParams } from 'next/navigation'
+import { useParams } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { Button } from '@/components/ui/button'
 import { ArrowLeft } from 'lucide-react'
 import Link from 'next/link'
+import { loadMapById, type LocalMapData } from '@/lib/local-maps'
 
 const MapEditor = dynamic(() => import('@/components/map/map-editor'), {
   ssr: false,
   loading: () => <div className="w-full h-96 rounded-lg border bg-muted flex items-center justify-center">マップを読み込み中...</div>,
 })
 
-interface MapData {
-  id: string
-  name: string
-  description: string
-  bounds: any
-}
-
 export default function EditorPage() {
-  const [mapData, setMapData] = useState<MapData | null>(null)
+  const [mapData, setMapData] = useState<LocalMapData | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const router = useRouter()
   const params = useParams()
   const mapId = params.id as string
 
   useEffect(() => {
-    const loadMap = async () => {
-      try {
-        const response = await fetch(`/api/maps/${mapId}`)
+    if (!mapId) return
 
-        if (!response.ok) {
-          if (response.status === 401) {
-            router.push('/auth/login')
-            return
-          }
-          throw new Error('Failed to load map')
-        }
-
-        const data = await response.json()
-        setMapData(data)
-      } catch (err) {
-        setError('予期しないエラーが発生しました')
-      } finally {
-        setIsLoading(false)
+    try {
+      const found = loadMapById(mapId)
+      if (!found) {
+        setError('マップが見つかりません')
+      } else {
+        setMapData(found)
       }
+    } catch {
+      setError('予期しないエラーが発生しました')
+    } finally {
+      setIsLoading(false)
     }
-
-    loadMap()
-  }, [mapId, router])
+  }, [mapId])
 
   if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        読み込み中...
-      </div>
-    )
+    return <div className="min-h-screen flex items-center justify-center">読み込み中...</div>
   }
 
   if (error) {
@@ -74,11 +55,7 @@ export default function EditorPage() {
   }
 
   if (!mapData) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        マップが見つかりません
-      </div>
-    )
+    return <div className="min-h-screen flex items-center justify-center">マップが見つかりません</div>
   }
 
   return (
