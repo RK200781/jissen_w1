@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Plus, LogOut, Map } from 'lucide-react'
+import { Plus, LogOut, Map, Home } from 'lucide-react'
 import { loadMaps, saveMaps, type LocalMapData } from '@/lib/local-maps'
 
 export default function DashboardPage() {
@@ -36,10 +36,18 @@ export default function DashboardPage() {
       <header className="border-b bg-card">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
           <h1 className="text-2xl font-bold">Locap ダッシュボード</h1>
-          <Button variant="outline" size="sm" onClick={handleLogout} className="gap-2">
-            <LogOut className="w-4 h-4" />
-            ログアウト
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button asChild variant="ghost" size="sm" className="gap-2">
+              <Link href="/">
+                <Home className="w-4 h-4" />
+                ホームへ
+              </Link>
+            </Button>
+            <Button variant="outline" size="sm" onClick={handleLogout} className="gap-2">
+              <LogOut className="w-4 h-4" />
+              ログアウト
+            </Button>
+          </div>
         </div>
       </header>
 
