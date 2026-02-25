@@ -312,51 +312,51 @@ out geom;
             </div>
           </div>
 
-          <div className="p-4 border-b">
-            <p className="font-semibold text-sm">オブジェクトを追加</p>
-            <p className="text-xs text-muted-foreground">個数を指定して複数同時に配置できます（追加後はドラッグで位置調整）</p>
-          </div>
+          <div className="flex-1 min-h-0 overflow-y-scroll">
+            <div className="p-4 border-b">
+              <p className="font-semibold text-sm">オブジェクトを追加</p>
+              <p className="text-xs text-muted-foreground">個数を指定して複数同時に配置できます（追加後はドラッグで位置調整）</p>
+            </div>
 
-          <form onSubmit={handleAddFacility} className="p-4 space-y-3 border-b">
-            <Input
-              placeholder="施設名を入力"
-              value={newFacilityName}
-              onChange={(e) => setNewFacilityName(e.target.value)}
-              disabled={addingFacility}
-            />
-            <div className="space-y-2">
-              <label className="text-xs text-muted-foreground">同時配置数</label>
+            <form onSubmit={handleAddFacility} className="p-4 space-y-3 border-b">
               <Input
-                type="number"
-                min={1}
-                max={50}
-                value={placementCount}
-                onChange={(e) => setPlacementCount(Number(e.target.value) || 1)}
+                placeholder="施設名を入力"
+                value={newFacilityName}
+                onChange={(e) => setNewFacilityName(e.target.value)}
                 disabled={addingFacility}
               />
-            </div>
-            <div className="grid grid-cols-6 gap-2">
-              {FACILITY_ICONS.map((icon) => (
-                <button
-                  key={icon.value}
-                  type="button"
-                  onClick={() => setSelectedIcon(icon.value)}
-                  className={`p-2 rounded border text-2xl transition-all ${
-                    selectedIcon === icon.value ? 'border-primary bg-primary/10' : 'border-muted hover:border-primary/50'
-                  }`}
-                  title={icon.label}
-                >
-                  {icon.value}
-                </button>
-              ))}
-            </div>
-            <Button type="submit" disabled={addingFacility || !newFacilityName} className="w-full gap-2">
-              <Plus className="w-4 h-4" />{placementCount > 1 ? `${placementCount}個まとめて追加` : "追加"}
-            </Button>
-          </form>
+              <div className="space-y-2">
+                <label className="text-xs text-muted-foreground">同時配置数</label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={50}
+                  value={placementCount}
+                  onChange={(e) => setPlacementCount(Number(e.target.value) || 1)}
+                  disabled={addingFacility}
+                />
+              </div>
+              <div className="grid grid-cols-6 gap-2">
+                {FACILITY_ICONS.map((icon) => (
+                  <button
+                    key={icon.value}
+                    type="button"
+                    onClick={() => setSelectedIcon(icon.value)}
+                    className={`p-2 rounded border text-2xl transition-all ${
+                      selectedIcon === icon.value ? 'border-primary bg-primary/10' : 'border-muted hover:border-primary/50'
+                    }`}
+                    title={icon.label}
+                  >
+                    {icon.value}
+                  </button>
+                ))}
+              </div>
+              <Button type="submit" disabled={addingFacility || !newFacilityName} className="w-full gap-2">
+                <Plus className="w-4 h-4" />{placementCount > 1 ? `${placementCount}個まとめて追加` : "追加"}
+              </Button>
+            </form>
 
-          <div className="p-4 border-b text-sm font-semibold">施設一覧 ({facilities.length})</div>
-          <div className="flex-1 min-h-0 overflow-y-scroll">
+            <div className="p-4 border-b text-sm font-semibold">施設一覧 ({facilities.length})</div>
             <div className="p-4 space-y-2">
               {facilities.length === 0 ? (
                 <p className="text-sm text-muted-foreground">施設がまだ追加されていません</p>
@@ -378,9 +378,9 @@ out geom;
                 ))
               )}
             </div>
-          </div>
 
-          {message && <p className="px-4 pb-4 text-xs text-muted-foreground">{message}</p>}
+            {message && <p className="px-4 pb-4 text-xs text-muted-foreground">{message}</p>}
+          </div>
         </div>
       )}
     </div>
