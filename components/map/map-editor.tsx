@@ -48,6 +48,8 @@ export default function MapEditor({ mapId, bounds }: MapEditorProps) {
   const [message, setMessage] = useState<string | null>(null)
   const [roadWidth, setRoadWidth] = useState(4)
   const [draggingFacilityId, setDraggingFacilityId] = useState<string | null>(null)
+  const [editingFacilityId, setEditingFacilityId] = useState<string | null>(null)
+  const [editingFacilityName, setEditingFacilityName] = useState('')
   const svgRef = useRef<SVGSVGElement>(null)
 
   useEffect(() => {
@@ -176,6 +178,29 @@ out geom;
       persistMap((current) => ({ ...current, facilities: next }))
       return next
     })
+  }
+
+  const startEditingFacilityName = (facility: Facility) => {
+    setEditingFacilityId(facility.id)
+    setEditingFacilityName(facility.name)
+  }
+
+  const cancelEditingFacilityName = () => {
+    setEditingFacilityId(null)
+    setEditingFacilityName('')
+  }
+
+  const saveFacilityName = (facilityId: string) => {
+    const nextName = editingFacilityName.trim()
+    if (!nextName) return
+
+    setFacilities((prev) => {
+      const next = prev.map((f) => (f.id === facilityId ? { ...f, name: nextName } : f))
+      persistMap((current) => ({ ...current, facilities: next }))
+      return next
+    })
+
+    cancelEditingFacilityName()
   }
 
   const updateFacilityPositionFromPointer = (facilityId: string, clientX: number, clientY: number) => {
@@ -362,18 +387,37 @@ out geom;
                 <p className="text-sm text-muted-foreground">施設がまだ追加されていません</p>
               ) : (
                 facilities.map((facility) => (
-                  <div key={facility.id} className="flex items-center justify-between p-2 rounded border hover:bg-muted">
-                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                  <div key={facility.id} className="p-2 rounded border hover:bg-muted space-y-2">
+                    <div className="flex items-center gap-2 min-w-0">
                       <span className="text-lg">{facility.icon}</span>
-                      <span className="text-sm font-medium truncate">{facility.name}</span>
+                      {editingFacilityId === facility.id ? (
+                        <Input
+                          value={editingFacilityName}
+                          onChange={(e) => setEditingFacilityName(e.target.value)}
+                          className="h-8"
+                          maxLength={50}
+                        />
+                      ) : (
+                        <span className="text-sm font-medium truncate">{facility.name}</span>
+                      )}
                     </div>
-                    <button
-                      onClick={() => handleDeleteFacility(facility.id)}
-                      className="p-1 text-destructive hover:bg-destructive/10 rounded"
-                      title="削除"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    <div className="flex items-center justify-end gap-2">
+                      {editingFacilityId === facility.id ? (
+                        <>
+                          <Button type="button" size="sm" variant="secondary" onClick={cancelEditingFacilityName}>キャンセル</Button>
+                          <Button type="button" size="sm" onClick={() => saveFacilityName(facility.id)} disabled={!editingFacilityName.trim()}>保存</Button>
+                        </>
+                      ) : (
+                        <Button type="button" size="sm" variant="outline" onClick={() => startEditingFacilityName(facility)}>名前変更</Button>
+                      )}
+                      <button
+                        onClick={() => handleDeleteFacility(facility.id)}
+                        className="p-1 text-destructive hover:bg-destructive/10 rounded"
+                        title="削除"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
                 ))
               )}
