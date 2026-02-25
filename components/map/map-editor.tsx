@@ -1,24 +1,22 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
-import L from 'leaflet'
-import 'leaflet/dist/leaflet.css'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Plus, Trash2, Zap } from 'lucide-react'
-import RoadsGenerator from './roads-generator'
+import { Slider } from '@/components/ui/slider'
+import { Plus, Trash2, PanelRightClose, PanelRightOpen, RefreshCw } from 'lucide-react'
+import {
+  loadMapById,
+  saveMapById,
+  type BaseFeatureData,
+  type Facility,
+  type SelectedBounds,
+} from '@/lib/local-maps'
 
 interface MapEditorProps {
   mapId: string
-  bounds: any
-}
-
-interface Facility {
-  id: string
-  name: string
-  location: [number, number]
-  icon: string
+  bounds: SelectedBounds
 }
 
 const FACILITY_ICONS = [
@@ -30,281 +28,435 @@ const FACILITY_ICONS = [
   { value: '🎪', label: 'イベント' },
 ]
 
+interface OverpassWay {
+  type: string
+  geometry?: { lat: number; lon: number }[]
+  tags?: Record<string, string>
+}
+
+const CANVAS_WIDTH = 1400
+const CANVAS_HEIGHT = 900
+
 export default function MapEditor({ mapId, bounds }: MapEditorProps) {
-  const mapContainer = useRef<HTMLDivElement>(null)
-  const map = useRef<L.Map | null>(null)
   const [facilities, setFacilities] = useState<Facility[]>([])
+  const [baseFeatureData, setBaseFeatureData] = useState<BaseFeatureData | null>(null)
   const [newFacilityName, setNewFacilityName] = useState('')
   const [selectedIcon, setSelectedIcon] = useState('🛒')
   const [addingFacility, setAddingFacility] = useState(false)
-  const [isLoading, setIsLoading] = useState(true)
-  const markers = useRef<Map<string, L.Marker>>(new Map())
+  const [placementCount, setPlacementCount] = useState(1)
+  const [isGeneratingBase, setIsGeneratingBase] = useState(false)
+  const [isFacilityPanelOpen, setIsFacilityPanelOpen] = useState(false)
+  const [message, setMessage] = useState<string | null>(null)
+  const [roadWidth, setRoadWidth] = useState(4)
+  const [draggingFacilityId, setDraggingFacilityId] = useState<string | null>(null)
+  const [editingFacilityId, setEditingFacilityId] = useState<string | null>(null)
+  const [editingFacilityName, setEditingFacilityName] = useState('')
+  const svgRef = useRef<SVGSVGElement>(null)
+  const [isSavingMap, setIsSavingMap] = useState(false)
+  const router = useRouter()
 
   useEffect(() => {
-    if (!mapContainer.current) return
+    const localMap = loadMapById(mapId)
 
-    // Initialize map
-    const boundsArray = bounds.coordinates[0]
-    const mapBounds = L.latLngBounds(
-      [boundsArray[0][1], boundsArray[0][0]],
-      [boundsArray[2][1], boundsArray[2][0]]
-    )
-
-    map.current = L.map(mapContainer.current).fitBounds(mapBounds)
-
-    // Add OpenStreetMap tiles
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap contributors',
-      maxZoom: 19,
-    }).addTo(map.current)
-
-    // Load facilities
-    loadFacilities()
-
-    return () => {
-      if (map.current) {
-        map.current.remove()
-        map.current = null
-      }
+    if (localMap?.facilities) {
+      setFacilities(localMap.facilities)
     }
-  }, [mapId, bounds, supabase])
 
-  const loadFacilities = async () => {
+    if (localMap?.baseFeatureData) {
+      setBaseFeatureData(localMap.baseFeatureData)
+    } else {
+      generateBaseFeatureData()
+    }
+  }, [mapId])
+
+  const persistMap = (updater: Parameters<typeof saveMapById>[1]) => {
+    saveMapById(mapId, updater)
+  }
+
+  const project = useMemo(() => {
+    const lngRange = Math.max(bounds.east - bounds.west, 0.000001)
+    const latRange = Math.max(bounds.north - bounds.south, 0.000001)
+
+    return (lat: number, lng: number): [number, number] => {
+      const x = ((lng - bounds.west) / lngRange) * CANVAS_WIDTH
+      const y = ((bounds.north - lat) / latRange) * CANVAS_HEIGHT
+      return [x, y]
+    }
+  }, [bounds])
+
+  const unproject = useMemo(() => {
+    const lngRange = Math.max(bounds.east - bounds.west, 0.000001)
+    const latRange = Math.max(bounds.north - bounds.south, 0.000001)
+
+    return (x: number, y: number): [number, number] => {
+      const lng = bounds.west + (x / CANVAS_WIDTH) * lngRange
+      const lat = bounds.north - (y / CANVAS_HEIGHT) * latRange
+      return [lat, lng]
+    }
+  }, [bounds])
+
+  const generateBaseFeatureData = async () => {
+    setIsGeneratingBase(true)
+    setMessage(null)
+
     try {
-      const { data, error } = await supabase
-        .from('facilities')
-        .select('*')
-        .eq('map_id', mapId)
+      const query = `
+[out:json][timeout:25];
+(
+  way["highway"](${bounds.south},${bounds.west},${bounds.north},${bounds.east});
+  way["building"](${bounds.south},${bounds.west},${bounds.north},${bounds.east});
+);
+out geom;
+      `.trim()
 
-      if (error) {
-        console.error('Failed to load facilities:', error)
-        return
-      }
-
-      const facilitiesData = data.map((f) => ({
-        id: f.id,
-        name: f.name,
-        location: [
-          f.location.coordinates[1],
-          f.location.coordinates[0],
-        ] as [number, number],
-        icon: f.icon,
-      }))
-
-      setFacilities(facilitiesData)
-
-      // Add markers to map
-      facilitiesData.forEach((facility) => {
-        if (map.current) {
-          const marker = L.marker(facility.location, {
-            title: facility.name,
-          }).bindPopup(`<strong>${facility.name}</strong> ${facility.icon}`).addTo(map.current)
-
-          marker.draggable = true
-          markers.current.set(facility.id, marker)
-
-          marker.on('dragend', () => {
-            const newPos = marker.getLatLng()
-            updateFacilityLocation(facility.id, [newPos.lat, newPos.lng])
-          })
-        }
+      const response = await fetch('https://overpass-api.de/api/interpreter', {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+        body: query,
       })
 
-      setIsLoading(false)
-    } catch (err) {
-      console.error('Error loading facilities:', err)
-      setIsLoading(false)
+      if (!response.ok) throw new Error('overpass_failed')
+
+      const json = await response.json()
+      const elements = (json.elements ?? []) as OverpassWay[]
+      const roads: [number, number][][] = []
+      const buildings: [number, number][][] = []
+
+      elements.forEach((el) => {
+        if (el.type !== 'way' || !el.geometry || el.geometry.length < 2) return
+        const latLngs = el.geometry.map((p) => [p.lat, p.lon] as [number, number])
+        if (el.tags?.highway) roads.push(latLngs)
+        if (el.tags?.building && latLngs.length >= 3) buildings.push(latLngs)
+      })
+
+      const generated = { roads, buildings }
+      setBaseFeatureData(generated)
+      persistMap((current) => ({ ...current, baseFeatureData: generated }))
+      setMessage(`土台データを生成しました（道路 ${roads.length} / 建物 ${buildings.length}）`)
+    } catch {
+      setMessage('土台データ生成に失敗しました。時間を置いて再試行してください。')
+    } finally {
+      setIsGeneratingBase(false)
     }
   }
 
-  const handleAddFacility = async (e: React.FormEvent) => {
+  const handleAddFacility = (e: React.FormEvent) => {
     e.preventDefault()
-
-    if (!newFacilityName || !map.current) return
+    if (!newFacilityName) return
 
     setAddingFacility(true)
 
+    const centerLat = (bounds.north + bounds.south) / 2
+    const centerLng = (bounds.east + bounds.west) / 2
+    const count = Math.max(1, Math.min(50, Math.floor(placementCount || 1)))
+
+    const facilitiesToAdd: Facility[] = Array.from({ length: count }, (_, i) => {
+      const ring = Math.floor(i / 8) + 1
+      const angle = (i % 8) * (Math.PI / 4)
+      const latOffset = Math.sin(angle) * ring * 0.0004
+      const lngOffset = Math.cos(angle) * ring * 0.0004
+      const location: [number, number] = [centerLat + latOffset, centerLng + lngOffset]
+
+      return {
+        id: crypto.randomUUID(),
+        name: count > 1 ? `${newFacilityName}${i + 1}` : newFacilityName,
+        location,
+        icon: selectedIcon,
+      }
+    })
+
+    setFacilities((prev) => {
+      const next = [...prev, ...facilitiesToAdd]
+      persistMap((current) => ({ ...current, facilities: next }))
+      return next
+    })
+
+    setNewFacilityName('')
+    setAddingFacility(false)
+  }
+
+  const handleDeleteFacility = (facilityId: string) => {
+    setFacilities((prev) => {
+      const next = prev.filter((f) => f.id !== facilityId)
+      persistMap((current) => ({ ...current, facilities: next }))
+      return next
+    })
+  }
+
+  const startEditingFacilityName = (facility: Facility) => {
+    setEditingFacilityId(facility.id)
+    setEditingFacilityName(facility.name)
+  }
+
+  const cancelEditingFacilityName = () => {
+    setEditingFacilityId(null)
+    setEditingFacilityName('')
+  }
+
+  const saveFacilityName = (facilityId: string) => {
+    const nextName = editingFacilityName.trim()
+    if (!nextName) return
+
+    setFacilities((prev) => {
+      const next = prev.map((f) => (f.id === facilityId ? { ...f, name: nextName } : f))
+      persistMap((current) => ({ ...current, facilities: next }))
+      return next
+    })
+
+    cancelEditingFacilityName()
+  }
+
+  const updateFacilityPositionFromPointer = (facilityId: string, clientX: number, clientY: number) => {
+    const svg = svgRef.current
+    if (!svg) return
+
+    const rect = svg.getBoundingClientRect()
+    if (rect.width === 0 || rect.height === 0) return
+
+    const x = ((clientX - rect.left) / rect.width) * CANVAS_WIDTH
+    const y = ((clientY - rect.top) / rect.height) * CANVAS_HEIGHT
+
+    const clampedX = Math.max(0, Math.min(CANVAS_WIDTH, x))
+    const clampedY = Math.max(0, Math.min(CANVAS_HEIGHT, y))
+    const [lat, lng] = unproject(clampedX, clampedY)
+    const location: [number, number] = [lat, lng]
+
+    setFacilities((prev) => {
+      const next = prev.map((f) => (f.id === facilityId ? { ...f, location } : f))
+      persistMap((current) => ({ ...current, facilities: next }))
+      return next
+    })
+  }
+
+
+  const handleSaveAndBackToDashboard = async () => {
+    setIsSavingMap(true)
+
     try {
-      // Get map center as default location
-      const center = map.current.getCenter()
+      saveMapById(mapId, (current) => ({
+        ...current,
+        bounds,
+        facilities,
+        baseFeatureData: baseFeatureData ?? undefined,
+      }))
 
-      const { data, error } = await supabase
-        .from('facilities')
-        .insert([
-          {
-            map_id: mapId,
-            name: newFacilityName,
-            location: {
-              type: 'Point',
-              coordinates: [center.lng, center.lat],
-            },
-            icon: selectedIcon,
-          },
-        ])
-        .select()
-
-      if (error) {
-        console.error('Failed to add facility:', error)
-        return
-      }
-
-      if (data && data.length > 0) {
-        const newFacility = {
-          id: data[0].id,
-          name: data[0].name,
-          location: [center.lat, center.lng] as [number, number],
-          icon: selectedIcon,
-        }
-
-        setFacilities([...facilities, newFacility])
-
-        // Add marker
-        const marker = L.marker([center.lat, center.lng], {
-          title: newFacility.name,
-        }).bindPopup(`<strong>${newFacility.name}</strong> ${selectedIcon}`).addTo(map.current!)
-
-        marker.draggable = true
-        markers.current.set(newFacility.id, marker)
-
-        marker.on('dragend', () => {
-          const newPos = marker.getLatLng()
-          updateFacilityLocation(newFacility.id, [newPos.lat, newPos.lng])
-        })
-
-        setNewFacilityName('')
-      }
-    } catch (err) {
-      console.error('Error adding facility:', err)
+      router.push('/dashboard')
     } finally {
-      setAddingFacility(false)
+      setIsSavingMap(false)
     }
   }
 
-  const handleDeleteFacility = async (facilityId: string) => {
-    try {
-      const { error } = await supabase.from('facilities').delete().eq('id', facilityId)
-
-      if (error) {
-        console.error('Failed to delete facility:', error)
-        return
-      }
-
-      setFacilities(facilities.filter((f) => f.id !== facilityId))
-
-      const marker = markers.current.get(facilityId)
-      if (marker && map.current) {
-        map.current.removeLayer(marker)
-      }
-      markers.current.delete(facilityId)
-    } catch (err) {
-      console.error('Error deleting facility:', err)
-    }
-  }
-
-  const updateFacilityLocation = async (facilityId: string, location: [number, number]) => {
-    try {
-      await supabase
-        .from('facilities')
-        .update({
-          location: {
-            type: 'Point',
-            coordinates: [location[1], location[0]],
-          },
-        })
-        .eq('id', facilityId)
-    } catch (err) {
-      console.error('Error updating facility location:', err)
-    }
-  }
+  const roads = baseFeatureData?.roads ?? []
+  const buildings = baseFeatureData?.buildings ?? []
 
   return (
-    <div className="flex h-full gap-4 p-4">
-      {/* Map */}
-      <div className="flex-1 rounded-lg border overflow-hidden">
-        <div ref={mapContainer} className="w-full h-full" />
+    <div className="relative h-full w-full bg-muted/30">
+      <div className="absolute top-4 right-4 z-20 flex gap-2">
+        <Button
+          variant="secondary"
+          size="sm"
+          className="shadow"
+          onClick={() => setIsFacilityPanelOpen((prev) => !prev)}
+        >
+          {isFacilityPanelOpen ? <PanelRightClose className="w-4 h-4" /> : <PanelRightOpen className="w-4 h-4" />}
+          施設
+        </Button>
+        <Button size="sm" className="shadow gap-1" onClick={generateBaseFeatureData} disabled={isGeneratingBase}>
+          <RefreshCw className="w-4 h-4" />
+          {isGeneratingBase ? '再生成中...' : '土台再生成'}
+        </Button>
+        <Button
+          size="sm"
+          variant="default"
+          className="shadow"
+          onClick={handleSaveAndBackToDashboard}
+          disabled={isSavingMap}
+        >
+          {isSavingMap ? '保存中...' : 'マップを保存して戻る'}
+        </Button>
       </div>
 
-      {/* Sidebar */}
-      <div className="w-80 flex flex-col gap-4">
-        {/* Roads Generator */}
-        <RoadsGenerator mapId={mapId} />
+      <div className="h-full w-full p-4">
+        <div className="h-full w-full rounded-lg border bg-white overflow-hidden">
+          <svg
+            ref={svgRef}
+            viewBox={`0 0 ${CANVAS_WIDTH} ${CANVAS_HEIGHT}`}
+            className="w-full h-full touch-none"
+            onPointerMove={(e) => {
+              if (!draggingFacilityId) return
+              updateFacilityPositionFromPointer(draggingFacilityId, e.clientX, e.clientY)
+            }}
+            onPointerUp={() => setDraggingFacilityId(null)}
+            onPointerLeave={() => setDraggingFacilityId(null)}
+          >
+            <rect x={0} y={0} width={CANVAS_WIDTH} height={CANVAS_HEIGHT} fill="#f8fafc" />
 
-        {/* Add Facility Card */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">施設を追加</CardTitle>
-            <CardDescription>ドラッグで移動可能</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleAddFacility} className="space-y-4">
+            {buildings.map((building, idx) => {
+              const points = building
+                .map(([lat, lng]) => {
+                  const [x, y] = project(lat, lng)
+                  return `${x},${y}`
+                })
+                .join(' ')
+
+              return (
+                <polygon
+                  key={`b-${idx}`}
+                  points={points}
+                  fill="#cbd5e1"
+                  stroke="#475569"
+                  strokeWidth={1}
+                  fillOpacity={0.75}
+                />
+              )
+            })}
+
+            {roads.map((road, idx) => {
+              const points = road
+                .map(([lat, lng]) => {
+                  const [x, y] = project(lat, lng)
+                  return `${x},${y}`
+                })
+                .join(' ')
+
+              return (
+                <polyline
+                  key={`r-${idx}`}
+                  points={points}
+                  fill="none"
+                  stroke="#64748b"
+                  strokeWidth={roadWidth}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  opacity={0.95}
+                />
+              )
+            })}
+
+            {facilities.map((facility) => {
+              const [x, y] = project(facility.location[0], facility.location[1])
+              return (
+                <g
+                  key={facility.id}
+                  transform={`translate(${x}, ${y})`}
+                  style={{ cursor: 'grab' }}
+                  onPointerDown={(e) => {
+                    e.preventDefault()
+                    ;(e.currentTarget as SVGGElement).setPointerCapture(e.pointerId)
+                    setDraggingFacilityId(facility.id)
+                  }}
+                >
+                  <circle r={14} fill="#ffffff" stroke="#0f172a" strokeWidth={1.5} />
+                  <text textAnchor="middle" dominantBaseline="central" fontSize={14}>
+                    {facility.icon}
+                  </text>
+                </g>
+              )
+            })}
+          </svg>
+        </div>
+      </div>
+
+      {isFacilityPanelOpen && (
+        <div className="absolute top-16 right-4 z-20 w-[360px] max-w-[calc(100vw-2rem)] max-h-[calc(100%-5rem)] overflow-hidden rounded-lg border bg-card shadow-lg flex flex-col">
+          <div className="p-4 border-b space-y-2">
+            <p className="font-semibold text-sm">土台編集</p>
+            <div>
+              <label className="text-xs text-muted-foreground">道幅: {roadWidth}px</label>
+              <Slider value={[roadWidth]} min={1} max={12} step={1} onValueChange={(v) => setRoadWidth(v[0])} />
+            </div>
+          </div>
+
+          <div className="flex-1 min-h-0 overflow-y-scroll">
+            <div className="p-4 border-b">
+              <p className="font-semibold text-sm">オブジェクトを追加</p>
+              <p className="text-xs text-muted-foreground">個数を指定して複数同時に配置できます（追加後はドラッグで位置調整）</p>
+            </div>
+
+            <form onSubmit={handleAddFacility} className="p-4 space-y-3 border-b">
+              <Input
+                placeholder="施設名を入力"
+                value={newFacilityName}
+                onChange={(e) => setNewFacilityName(e.target.value)}
+                disabled={addingFacility}
+              />
               <div className="space-y-2">
-                <label className="text-sm font-medium">施設名</label>
+                <label className="text-xs text-muted-foreground">同時配置数</label>
                 <Input
-                  placeholder="施設名を入力"
-                  value={newFacilityName}
-                  onChange={(e) => setNewFacilityName(e.target.value)}
+                  type="number"
+                  min={1}
+                  max={50}
+                  value={placementCount}
+                  onChange={(e) => setPlacementCount(Number(e.target.value) || 1)}
                   disabled={addingFacility}
                 />
               </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium">アイコン</label>
-                <div className="grid grid-cols-6 gap-2">
-                  {FACILITY_ICONS.map((icon) => (
-                    <button
-                      key={icon.value}
-                      type="button"
-                      onClick={() => setSelectedIcon(icon.value)}
-                      className={`p-2 rounded border text-2xl transition-all ${
-                        selectedIcon === icon.value
-                          ? 'border-primary bg-primary/10'
-                          : 'border-muted hover:border-primary/50'
-                      }`}
-                      title={icon.label}
-                    >
-                      {icon.value}
-                    </button>
-                  ))}
-                </div>
+              <div className="grid grid-cols-6 gap-2">
+                {FACILITY_ICONS.map((icon) => (
+                  <button
+                    key={icon.value}
+                    type="button"
+                    onClick={() => setSelectedIcon(icon.value)}
+                    className={`p-2 rounded border text-2xl transition-all ${
+                      selectedIcon === icon.value ? 'border-primary bg-primary/10' : 'border-muted hover:border-primary/50'
+                    }`}
+                    title={icon.label}
+                  >
+                    {icon.value}
+                  </button>
+                ))}
               </div>
               <Button type="submit" disabled={addingFacility || !newFacilityName} className="w-full gap-2">
-                <Plus className="w-4 h-4" />
-                追加
+                <Plus className="w-4 h-4" />{placementCount > 1 ? `${placementCount}個まとめて追加` : "追加"}
               </Button>
             </form>
-          </CardContent>
-        </Card>
 
-        {/* Facilities List */}
-        <Card className="flex-1 overflow-hidden flex flex-col">
-          <CardHeader>
-            <CardTitle className="text-lg">施設一覧 ({facilities.length})</CardTitle>
-          </CardHeader>
-          <CardContent className="flex-1 overflow-y-auto space-y-2">
-            {facilities.length === 0 ? (
-              <p className="text-sm text-muted-foreground">施設がまだ追加されていません</p>
-            ) : (
-              facilities.map((facility) => (
-                <div
-                  key={facility.id}
-                  className="flex items-center justify-between p-2 rounded border hover:bg-muted transition-colors"
-                >
-                  <div className="flex items-center gap-2 flex-1 min-w-0">
-                    <span className="text-lg">{facility.icon}</span>
-                    <span className="text-sm font-medium truncate">{facility.name}</span>
+            <div className="p-4 border-b text-sm font-semibold">施設一覧 ({facilities.length})</div>
+            <div className="p-4 space-y-2">
+              {facilities.length === 0 ? (
+                <p className="text-sm text-muted-foreground">施設がまだ追加されていません</p>
+              ) : (
+                facilities.map((facility) => (
+                  <div key={facility.id} className="p-2 rounded border hover:bg-muted space-y-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="text-lg">{facility.icon}</span>
+                      {editingFacilityId === facility.id ? (
+                        <Input
+                          value={editingFacilityName}
+                          onChange={(e) => setEditingFacilityName(e.target.value)}
+                          className="h-8"
+                          maxLength={50}
+                        />
+                      ) : (
+                        <span className="text-sm font-medium truncate">{facility.name}</span>
+                      )}
+                    </div>
+                    <div className="flex items-center justify-end gap-2">
+                      {editingFacilityId === facility.id ? (
+                        <>
+                          <Button type="button" size="sm" variant="secondary" onClick={cancelEditingFacilityName}>キャンセル</Button>
+                          <Button type="button" size="sm" onClick={() => saveFacilityName(facility.id)} disabled={!editingFacilityName.trim()}>保存</Button>
+                        </>
+                      ) : (
+                        <Button type="button" size="sm" variant="outline" onClick={() => startEditingFacilityName(facility)}>名前変更</Button>
+                      )}
+                      <button
+                        onClick={() => handleDeleteFacility(facility.id)}
+                        className="p-1 text-destructive hover:bg-destructive/10 rounded"
+                        title="削除"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
-                  <button
-                    onClick={() => handleDeleteFacility(facility.id)}
-                    className="p-1 text-destructive hover:bg-destructive/10 rounded transition-colors"
-                    title="削除"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              ))
-            )}
-          </CardContent>
-        </Card>
-      </div>
+                ))
+              )}
+            </div>
+
+            {message && <p className="px-4 pb-4 text-xs text-muted-foreground">{message}</p>}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

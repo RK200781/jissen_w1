@@ -6,25 +6,18 @@ import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Plus, LogOut, Map } from 'lucide-react'
-
-interface MapProject {
-  id: string
-  name: string
-  description: string
-  created_at: string
-}
+import { loadMaps, saveMaps, type LocalMapData } from '@/lib/local-maps'
 
 export default function DashboardPage() {
-  const [maps, setMaps] = useState<MapProject[]>([])
+  const [maps, setMaps] = useState<LocalMapData[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const router = useRouter()
 
   useEffect(() => {
-    // Simulate loading - in production, this would call the actual API
-    setMaps([])
+    setMaps(loadMaps())
     setIsLoading(false)
-  }, [router])
+  }, [])
 
   const handleLogout = async () => {
     router.push('/')
@@ -32,7 +25,10 @@ export default function DashboardPage() {
 
   const handleDeleteMap = async (mapId: string) => {
     if (!confirm('このマップを削除しますか？')) return
-    setMaps(maps.filter((m) => m.id !== mapId))
+
+    const next = maps.filter((m) => m.id !== mapId)
+    setMaps(next)
+    saveMaps(next)
   }
 
   return (
@@ -84,7 +80,7 @@ export default function DashboardPage() {
               <Card key={map.id} className="hover:shadow-lg transition-shadow">
                 <CardHeader>
                   <CardTitle className="text-lg">{map.name}</CardTitle>
-                  <CardDescription>{map.description}</CardDescription>
+                  <CardDescription>{map.description ?? '説明なし'}</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="flex gap-2">
