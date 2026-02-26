@@ -22,7 +22,6 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
   const [selectedRectangle, setSelectedRectangle] = useState<L.Rectangle | null>(null)
   const [polygonPointCount, setPolygonPointCount] = useState(0)
   const [polygonInteractionMode, setPolygonInteractionMode] = useState<PolygonInteractionMode>('move')
-  const [connectSourceIndex, setConnectSourceIndex] = useState<number | null>(null)
 
   const drawingState = useRef({
     isDrawing: false,
@@ -79,7 +78,6 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
     const clearConnectDraft = () => {
       connectDragRef.current.startIndex = null
       connectDragRef.current.currentLatLng = null
-      setConnectSourceIndex(null)
     }
 
     const clearPolygonLayers = () => {
@@ -181,7 +179,7 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
       }
 
       pState.vertices.forEach((vertex, index) => {
-        const isConnectSource = polygonInteractionMode === 'connect' && connectSourceIndex === index
+        const isConnectSource = polygonInteractionMode === 'connect' && connectDragRef.current.startIndex === index
         const marker = L.circleMarker(vertex, {
           radius: 6,
           color: isConnectSource ? '#7c3aed' : '#1d4ed8',
@@ -215,7 +213,6 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
             L.DomEvent.stopPropagation(e)
             connectDragRef.current.startIndex = index
             connectDragRef.current.currentLatLng = e.latlng
-            setConnectSourceIndex(index)
             redrawPolygon()
           })
 
@@ -374,7 +371,7 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
       clearPolygonLayers()
       mapInstance.remove()
     }
-  }, [mode, onBoundsChange, polygonInteractionMode, connectSourceIndex])
+  }, [mode, onBoundsChange, polygonInteractionMode])
 
   const handleReset = () => {
     const actions = (window as any).__rangeSelectorActions
@@ -438,7 +435,9 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
               variant={polygonInteractionMode === 'move' ? 'default' : 'outline'}
               onClick={() => {
                 setPolygonInteractionMode('move')
-                setConnectSourceIndex(null)
+                const actions = (window as any).__rangeSelectorActions
+                if (actions?.clearConnectDraft) actions.clearConnectDraft()
+                if (actions?.redrawPolygon) actions.redrawPolygon()
               }}
             >
               点を移動/追加
@@ -448,7 +447,9 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
               variant={polygonInteractionMode === 'connect' ? 'default' : 'outline'}
               onClick={() => {
                 setPolygonInteractionMode('connect')
-                setConnectSourceIndex(null)
+                const actions = (window as any).__rangeSelectorActions
+                if (actions?.clearConnectDraft) actions.clearConnectDraft()
+                if (actions?.redrawPolygon) actions.redrawPolygon()
               }}
             >
               線を編集
