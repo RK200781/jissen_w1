@@ -22,8 +22,7 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
   const [selectedRectangle, setSelectedRectangle] = useState<L.Rectangle | null>(null)
   const [polygonPointCount, setPolygonPointCount] = useState(0)
   const [polygonInteractionMode, setPolygonInteractionMode] = useState<PolygonInteractionMode>('move')
-  const [connectDragStartIndex, setConnectDragStartIndex] = useState<number | null>(null)
-  const [connectDragLatLng, setConnectDragLatLng] = useState<L.LatLng | null>(null)
+  const [connectSourceIndex, setConnectSourceIndex] = useState<number | null>(null)
 
   const drawingState = useRef({
     isDrawing: false,
@@ -31,6 +30,11 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
     tempRectangle: null as L.Rectangle | null,
     selectedRectangle: null as L.Rectangle | null,
     isDoubleClick: false,
+  })
+
+  const connectDragRef = useRef({
+    startIndex: null as number | null,
+    currentLatLng: null as L.LatLng | null,
   })
 
   const polygonState = useRef({
@@ -70,6 +74,12 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
     const addEdge = (a: number, b: number) => {
       if (a === b || hasEdge(a, b)) return
       polygonState.current.edges.push([a, b])
+    }
+
+    const clearConnectDraft = () => {
+      connectDragRef.current.startIndex = null
+      connectDragRef.current.currentLatLng = null
+      setConnectSourceIndex(null)
     }
 
     const clearPolygonLayers = () => {
@@ -122,8 +132,7 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
       if (pState.vertices.length === 0) {
         setPolygonPointCount(0)
         onBoundsChange(null)
-        setConnectDragStartIndex(null)
-        setConnectDragLatLng(null)
+        clearConnectDraft()
         return
       }
 
@@ -156,20 +165,23 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
 
       if (
         polygonInteractionMode === 'connect' &&
-        connectDragStartIndex !== null &&
-        connectDragLatLng &&
-        pState.vertices[connectDragStartIndex]
+        connectDragRef.current.startIndex !== null &&
+        connectDragRef.current.currentLatLng &&
+        pState.vertices[connectDragRef.current.startIndex]
       ) {
-        pState.previewLayer = L.polyline([pState.vertices[connectDragStartIndex], connectDragLatLng], {
-          color: '#7c3aed',
-          weight: 2,
-          opacity: 0.85,
-          dashArray: '6 6',
-        }).addTo(mapInstance)
+        pState.previewLayer = L.polyline(
+          [pState.vertices[connectDragRef.current.startIndex], connectDragRef.current.currentLatLng],
+          {
+            color: '#7c3aed',
+            weight: 2,
+            opacity: 0.85,
+            dashArray: '6 6',
+          },
+        ).addTo(mapInstance)
       }
 
       pState.vertices.forEach((vertex, index) => {
-        const isConnectSource = polygonInteractionMode === 'connect' && connectDragStartIndex === index
+        const isConnectSource = polygonInteractionMode === 'connect' && connectSourceIndex === index
         const marker = L.circleMarker(vertex, {
           radius: 6,
           color: isConnectSource ? '#7c3aed' : '#1d4ed8',
@@ -201,24 +213,22 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
         if (polygonInteractionMode === 'connect') {
           marker.on('mousedown', (e: L.LeafletMouseEvent) => {
             L.DomEvent.stopPropagation(e)
-            setConnectDragStartIndex(index)
-            setConnectDragLatLng(e.latlng)
+            connectDragRef.current.startIndex = index
+            connectDragRef.current.currentLatLng = e.latlng
+            setConnectSourceIndex(index)
+            redrawPolygon()
           })
 
           marker.on('mouseup', (e: L.LeafletMouseEvent) => {
             L.DomEvent.stopPropagation(e)
+            const startIndex = connectDragRef.current.startIndex
 
-            if (connectDragStartIndex === null) return
-            if (connectDragStartIndex === index) {
-              setConnectDragStartIndex(null)
-              setConnectDragLatLng(null)
-              redrawPolygon()
-              return
+            if (startIndex === null) return
+            if (startIndex !== index) {
+              addEdge(startIndex, index)
             }
 
-            addEdge(connectDragStartIndex, index)
-            setConnectDragStartIndex(null)
-            setConnectDragLatLng(null)
+            clearConnectDraft()
             redrawPolygon()
           })
         }
@@ -269,8 +279,8 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
         return
       }
 
-      if (mode === 'polygon' && polygonInteractionMode === 'connect' && connectDragStartIndex !== null) {
-        setConnectDragLatLng(e.latlng)
+      if (mode === 'polygon' && polygonInteractionMode === 'connect' && connectDragRef.current.startIndex !== null) {
+        connectDragRef.current.currentLatLng = e.latlng
         redrawPolygon()
       }
     }
@@ -322,9 +332,8 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
         return
       }
 
-      if (mode === 'polygon' && polygonInteractionMode === 'connect' && connectDragStartIndex !== null) {
-        setConnectDragStartIndex(null)
-        setConnectDragLatLng(null)
+      if (mode === 'polygon' && polygonInteractionMode === 'connect' && connectDragRef.current.startIndex !== null) {
+        clearConnectDraft()
         redrawPolygon()
       }
     }
@@ -352,6 +361,7 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
       clearPolygonLayers,
       redrawPolygon,
       polygonState,
+      clearConnectDraft,
     }
 
     return () => {
@@ -364,7 +374,7 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
       clearPolygonLayers()
       mapInstance.remove()
     }
-  }, [mode, onBoundsChange, polygonInteractionMode, connectDragStartIndex, connectDragLatLng])
+  }, [mode, onBoundsChange, polygonInteractionMode, connectSourceIndex])
 
   const handleReset = () => {
     const actions = (window as any).__rangeSelectorActions
@@ -378,8 +388,7 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
     if (actions?.polygonState) {
       actions.polygonState.current.vertices = []
       actions.polygonState.current.edges = []
-      setConnectDragStartIndex(null)
-      setConnectDragLatLng(null)
+      if (actions?.clearConnectDraft) actions.clearConnectDraft()
       actions.redrawPolygon()
     }
   }
@@ -396,10 +405,7 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
     vertices.pop()
     actions.polygonState.current.edges = edges.filter(([start, end]) => start !== removedIndex && end !== removedIndex)
 
-    if (connectDragStartIndex !== null && connectDragStartIndex >= vertices.length) {
-      setConnectDragStartIndex(null)
-      setConnectDragLatLng(null)
-    }
+    if (actions?.clearConnectDraft) actions.clearConnectDraft()
 
     actions.redrawPolygon()
   }
@@ -432,8 +438,7 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
               variant={polygonInteractionMode === 'move' ? 'default' : 'outline'}
               onClick={() => {
                 setPolygonInteractionMode('move')
-                setConnectDragStartIndex(null)
-                setConnectDragLatLng(null)
+                setConnectSourceIndex(null)
               }}
             >
               点を移動/追加
@@ -443,8 +448,7 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
               variant={polygonInteractionMode === 'connect' ? 'default' : 'outline'}
               onClick={() => {
                 setPolygonInteractionMode('connect')
-                setConnectDragStartIndex(null)
-                setConnectDragLatLng(null)
+                setConnectSourceIndex(null)
               }}
             >
               線を編集
