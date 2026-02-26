@@ -37,6 +37,7 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
     edges: [] as [number, number][],
     edgeLayers: [] as L.Polyline[],
     vertexMarkers: [] as L.CircleMarker[],
+    isManualConnectionMode: false,
   })
 
   useEffect(() => {
@@ -80,6 +81,8 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
 
     const toggleEdge = (a: number, b: number) => {
       if (a === b) return
+      polygonState.current.isManualConnectionMode = true
+
       if (hasEdge(a, b)) {
         removeEdge(a, b)
       } else {
@@ -92,6 +95,9 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
       const index = pState.vertices.length - 1
 
       if (index <= 0) return
+
+      if (pState.isManualConnectionMode) return
+
       if (index === 1) {
         addEdge(0, 1)
         return
@@ -145,6 +151,13 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
           weight: 3,
           opacity: 0.95,
         }).addTo(mapInstance)
+
+        if (polygonInteractionMode === 'connect') {
+          edgeLayer.on('click', () => {
+            toggleEdge(start, end)
+            redrawPolygon()
+          })
+        }
 
         pState.edgeLayers.push(edgeLayer)
       })
@@ -330,6 +343,7 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
     if (actions?.polygonState) {
       actions.polygonState.current.vertices = []
       actions.polygonState.current.edges = []
+      actions.polygonState.current.isManualConnectionMode = false
       setSelectedVertexIndex(null)
       actions.redrawPolygon()
     }
@@ -346,6 +360,11 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
     const removedIndex = vertices.length - 1
     vertices.pop()
     actions.polygonState.current.edges = edges.filter(([start, end]) => start !== removedIndex && end !== removedIndex)
+
+    if (vertices.length <= 2) {
+      actions.polygonState.current.isManualConnectionMode = false
+    }
+
     if (selectedVertexIndex !== null && selectedVertexIndex >= vertices.length) {
       setSelectedVertexIndex(null)
     }
@@ -399,7 +418,7 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
 
           {polygonInteractionMode === 'connect' && (
             <p className="text-xs text-muted-foreground px-1">
-              2つの点を順番にクリックすると、点同士の線を追加/削除できます。
+              2つの点を順番にクリックすると、点同士の線を追加/削除できます。線を直接クリックして削除することもできます。
               {selectedVertexIndex !== null ? `（${selectedVertexIndex + 1}点目を選択中）` : ''}
             </p>
           )}
