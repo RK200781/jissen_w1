@@ -4,25 +4,60 @@ import { useEffect, useRef, useState } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { Button } from '@/components/ui/button'
-import { AlertCircle } from 'lucide-react'
+import { AlertCircle, CheckCircle2 } from 'lucide-react'
+import type { SelectionMethod } from '@/lib/guide-steps'
 
-type SelectionMode = 'rectangle' | 'polygon'
 type PolygonEditMode = 'place' | 'connect'
 
 interface RangeSelectorMapProps {
+  selectionMethod: SelectionMethod
   onBoundsChange: (bounds: { north: number; south: number; east: number; west: number } | null) => void
 }
 
 const MAX_POLYGON_POINTS = 16
+const MIN_POLYGON_POINTS = 4
 
-export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapProps) {
+const isPolygonClosed = (vertexCount: number, edges: [number, number][]) => {
+  if (vertexCount < MIN_POLYGON_POINTS) return false
+  if (edges.length < vertexCount) return false
+
+  const degree = Array.from({ length: vertexCount }, () => 0)
+  const adjacency = Array.from({ length: vertexCount }, () => [] as number[])
+
+  edges.forEach(([a, b]) => {
+    if (a < 0 || b < 0 || a >= vertexCount || b >= vertexCount || a === b) return
+    degree[a] += 1
+    degree[b] += 1
+    adjacency[a].push(b)
+    adjacency[b].push(a)
+  })
+
+  if (degree.some((value) => value < 2)) return false
+
+  const stack = [0]
+  const visited = new Set<number>([0])
+
+  while (stack.length) {
+    const current = stack.pop()!
+    for (const next of adjacency[current]) {
+      if (!visited.has(next)) {
+        visited.add(next)
+        stack.push(next)
+      }
+    }
+  }
+
+  return visited.size === vertexCount
+}
+
+export default function RangeSelectorMap({ selectionMethod, onBoundsChange }: RangeSelectorMapProps) {
   const mapContainer = useRef<HTMLDivElement>(null)
   const map = useRef<L.Map | null>(null)
-  const [mode, setMode] = useState<SelectionMode>('rectangle')
   const [selectedRectangle, setSelectedRectangle] = useState<L.Rectangle | null>(null)
   const [polygonPointCount, setPolygonPointCount] = useState(0)
   const [polygonEditMode, setPolygonEditMode] = useState<PolygonEditMode>('place')
   const [selectedVertexIndex, setSelectedVertexIndex] = useState<number | null>(null)
+  const [polygonCompleted, setPolygonCompleted] = useState(false)
 
   const polygonEditModeRef = useRef<PolygonEditMode>('place')
   const selectedVertexIndexRef = useRef<number | null>(null)
@@ -50,6 +85,12 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
     }
   }, [polygonEditMode])
 
+
+  useEffect(() => {
+    if (selectionMethod !== 'polygon') {
+      setPolygonCompleted(false)
+    }
+  }, [selectionMethod])
   useEffect(() => {
     if (!mapContainer.current) return
 
@@ -121,6 +162,7 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
 
       if (pState.vertices.length === 0) {
         setPolygonPointCount(0)
+        setPolygonCompleted(false)
         onBoundsChange(null)
         selectedVertexIndexRef.current = null
         setSelectedVertexIndex(null)
@@ -139,7 +181,7 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
 
       pState.edges.forEach(([start, end]) => {
         const edgeLayer = L.polyline([pState.vertices[start], pState.vertices[end]], {
-          color: '#f97316',
+          color: '#16a34a',
           weight: 3,
           opacity: 0.95,
         }).addTo(mapInstance)
@@ -212,7 +254,15 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
       })
 
       setPolygonPointCount(pState.vertices.length)
-      emitBoundsFromLatLngs(pState.vertices)
+
+      const polygonReady = isPolygonClosed(pState.vertices.length, pState.edges)
+      if (selectionMethod === 'polygon') setPolygonCompleted(polygonReady)
+
+      if (selectionMethod === 'polygon' && !polygonReady) {
+        onBoundsChange(null)
+      } else {
+        emitBoundsFromLatLngs(pState.vertices)
+      }
     }
 
     const clearRectangleLayers = () => {
@@ -229,7 +279,7 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
     }
 
     const onDoubleClick = (e: L.LeafletMouseEvent) => {
-      if (mode !== 'rectangle') return
+      if (selectionMethod !== 'rectangle') return
       const state = drawingState.current
       state.isDoubleClick = true
       state.isDrawing = true
@@ -237,7 +287,7 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
     }
 
     const onMouseMove = (e: L.LeafletMouseEvent) => {
-      if (mode !== 'rectangle') return
+      if (selectionMethod !== 'rectangle') return
 
       const state = drawingState.current
       if (!state.isDrawing || !state.startLatLng) return
@@ -254,7 +304,7 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
     }
 
     const onMouseUp = (e: L.LeafletMouseEvent | L.LeafletEvent) => {
-      if (mode !== 'rectangle') return
+      if (selectionMethod !== 'rectangle') return
 
       const state = drawingState.current
       if (!state.isDrawing || !state.isDoubleClick || !state.startLatLng || !('latlng' in e)) {
@@ -281,10 +331,10 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
 
       const bounds = L.latLngBounds(state.startLatLng, e.latlng)
       const rectangle = L.rectangle(bounds, {
-        color: '#dc2626',
+        color: '#16a34a',
         weight: 2,
-        fillColor: '#ef4444',
-        fillOpacity: 0.2,
+        fillColor: '#22c55e',
+        fillOpacity: 0.25,
       }).addTo(mapInstance)
 
       state.selectedRectangle = rectangle
@@ -301,7 +351,7 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
     }
 
     const onMapClick = (e: L.LeafletMouseEvent) => {
-      if (mode !== 'polygon') return
+      if (selectionMethod !== 'polygon') return
       if (polygonEditModeRef.current !== 'place') return
 
       const pState = polygonState.current
@@ -334,12 +384,12 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
       clearPolygonLayers()
       mapInstance.remove()
     }
-  }, [mode, onBoundsChange])
+  }, [selectionMethod, onBoundsChange])
 
   const handleReset = () => {
     const actions = (window as any).__rangeSelectorActions
 
-    if (mode === 'rectangle') {
+    if (selectionMethod === 'rectangle') {
       if (actions?.clearRectangleLayers) actions.clearRectangleLayers()
       onBoundsChange(null)
       return
@@ -348,6 +398,7 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
     if (actions?.polygonState) {
       actions.polygonState.current.vertices = []
       actions.polygonState.current.edges = []
+      setPolygonCompleted(false)
       selectedVertexIndexRef.current = null
       setSelectedVertexIndex(null)
       actions.redrawPolygon()
@@ -374,27 +425,20 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
     actions.redrawPolygon()
   }
 
+  const rectangleCompleted = selectionMethod === 'rectangle' && selectedRectangle
+
   return (
-    <div className="space-y-2">
-      <div className="flex items-center gap-2 text-sm text-muted-foreground bg-blue-50 p-3 rounded-md border border-blue-200">
+    <div className="space-y-3">
+      <div className="flex items-center gap-2 text-sm bg-blue-50 p-3 rounded-md border border-blue-200 text-blue-900">
         <AlertCircle className="h-4 w-4" />
         <span>
-          {mode === 'rectangle'
-            ? '矩形モード: 地図をダブルクリック後にドラッグして範囲を選択'
-            : '自由ポリゴンモード: 点を置くモードで点を配置し、線をつなぐモードで点同士を接続'}
+          {selectionMethod === 'rectangle'
+            ? '地図を2回続けて押したまま動かして、四角で囲んでください。'
+            : `まず${MIN_POLYGON_POINTS}点以上を置きます。次に「点と点をつなぐ」で囲んでください。`}
         </span>
       </div>
 
-      <div className="grid grid-cols-2 gap-2">
-        <Button type="button" variant={mode === 'rectangle' ? 'default' : 'outline'} onClick={() => setMode('rectangle')}>
-          矩形選択
-        </Button>
-        <Button type="button" variant={mode === 'polygon' ? 'default' : 'outline'} onClick={() => setMode('polygon')}>
-          自由ポリゴン選択
-        </Button>
-      </div>
-
-      {mode === 'polygon' && (
+      {selectionMethod === 'polygon' && (
         <div className="space-y-2">
           <div className="grid grid-cols-2 gap-2">
             <Button
@@ -409,22 +453,22 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
               variant={polygonEditMode === 'connect' ? 'default' : 'outline'}
               onClick={() => setPolygonEditMode('connect')}
             >
-              線でつなぐ
+              点と点をつなぐ
             </Button>
           </div>
 
           <p className="text-xs text-muted-foreground px-1">
             {polygonEditMode === 'place'
-              ? `地図クリックで点を追加（最大${MAX_POLYGON_POINTS}点）。このモードでは線は自動でつながりません。`
-              : `2つの点を順番にクリックして線を追加/削除。線を直接クリックしても削除できます。${selectedVertexIndex !== null ? `（${selectedVertexIndex + 1}点目を選択中）` : ''}`}
+              ? `地図を押して点を追加します（${MIN_POLYGON_POINTS}〜${MAX_POLYGON_POINTS}点）。点は動かせます。`
+              : `2つの点を順番に押して線を追加または削除します。すべての点が線でつながると完了です。${selectedVertexIndex !== null ? `（${selectedVertexIndex + 1}点目を選択中）` : ''}`}
           </p>
 
           <div className="grid grid-cols-2 gap-2">
             <Button type="button" variant="outline" onClick={handleUndoPolygonPoint}>
-              最後の点を削除 ({polygonPointCount}/{MAX_POLYGON_POINTS})
+              最後の点を消す ({polygonPointCount}/{MAX_POLYGON_POINTS})
             </Button>
             <Button type="button" variant="outline" onClick={handleReset}>
-              ポリゴンをクリア
+              選び直す
             </Button>
           </div>
         </div>
@@ -434,11 +478,27 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
         <div ref={mapContainer} className="w-full h-full" />
       </div>
 
-      {mode === 'rectangle' && selectedRectangle && (
-        <Button variant="outline" onClick={handleReset} className="w-full">
-          選択範囲をクリア
-        </Button>
-      )}
+      {selectionMethod === 'polygon' && !polygonCompleted ? (
+        <div className="text-xs text-muted-foreground rounded-md border p-3 bg-muted/30">
+          {polygonPointCount < MIN_POLYGON_POINTS
+            ? `あと${MIN_POLYGON_POINTS - polygonPointCount}点追加すると、囲む準備ができます。`
+            : '点と点を線でつないで、途切れのない形にすると完了です。'}
+        </div>
+      ) : null}
+
+      {rectangleCompleted || polygonCompleted ? (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 text-sm bg-green-50 p-3 rounded-md border border-green-200 text-green-900">
+            <CheckCircle2 className="h-4 w-4" />
+            <span>場所を選べました。次は「地図を作る」を押してください。</span>
+          </div>
+          {selectionMethod === 'rectangle' && (
+            <Button variant="outline" onClick={handleReset} className="w-full">
+              選び直す
+            </Button>
+          )}
+        </div>
+      ) : null}
     </div>
   )
 }

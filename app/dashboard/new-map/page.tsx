@@ -4,11 +4,10 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Textarea } from '@/components/ui/textarea'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, Loader2 } from 'lucide-react'
 import Link from 'next/link'
+import { MAP_CREATION_STEPS_BY_METHOD, type SelectionMethod, SELECTION_METHOD_OPTIONS } from '@/lib/guide-steps'
 
 const RangeSelectorMap = dynamic(() => import('@/components/map/range-selector-map'), {
   ssr: false,
@@ -22,60 +21,50 @@ interface SelectedBounds {
   west: number
 }
 
+const buildDefaultMapName = (bounds: SelectedBounds) => {
+  const centerLat = ((bounds.north + bounds.south) / 2).toFixed(3)
+  const centerLng = ((bounds.east + bounds.west) / 2).toFixed(3)
+  return `地点(${centerLat}, ${centerLng})の地図`
+}
+
 export default function NewMapPage() {
-  const [mapName, setMapName] = useState('')
-  const [description, setDescription] = useState('')
+  const [selectionMethod, setSelectionMethod] = useState<SelectionMethod>('rectangle')
   const [selectedBounds, setSelectedBounds] = useState<SelectedBounds | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const router = useRouter()
 
-  const handleCreate = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError(null)
-    console.log('[v0] handleCreate called')
+  const steps = MAP_CREATION_STEPS_BY_METHOD[selectionMethod]
 
-    if (!mapName) {
-      console.log('[v0] Map name is empty')
-      setError('マップ名を入力してください')
-      return
-    }
+  const handleCreate = async () => {
+    setError(null)
 
     if (!selectedBounds) {
-      console.log('[v0] Selected bounds is null')
-      setError('マップ範囲を選択してください')
+      setError('先に場所を選んでください')
       return
     }
 
     setIsLoading(true)
-    console.log('[v0] Creating map with name:', mapName)
 
     try {
-      // シンプルなモック実装：新しいマップIDを生成してエディタに遷移
       const mapId = Math.random().toString(36).substr(2, 9)
-      console.log('[v0] Generated map ID:', mapId)
-      
       const newMap = {
         id: mapId,
-        name: mapName,
-        description: description || null,
+        name: buildDefaultMapName(selectedBounds),
+        description: null,
         bounds: selectedBounds,
         created_at: new Date().toISOString(),
       }
 
-      // localStorageに保存（クライアント側でのみ実行）
       if (typeof window !== 'undefined') {
-        console.log('[v0] Saving to localStorage')
         const maps = JSON.parse(localStorage.getItem('maps') || '[]')
         maps.push(newMap)
         localStorage.setItem('maps', JSON.stringify(maps))
-        console.log('[v0] Saved successfully, pushing to editor page')
       }
 
       router.push(`/dashboard/editor/${mapId}`)
-    } catch (err) {
-      console.error('[v0] Error creating map:', err)
-      setError('マップの作成に失敗しました')
+    } catch {
+      setError('地図を作れませんでした。時間をおいてもう一度お試しください。')
       setIsLoading(false)
     }
   }
@@ -83,82 +72,89 @@ export default function NewMapPage() {
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b bg-card">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
           <Link href="/dashboard" className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
             <ArrowLeft className="w-4 h-4" />
-            ダッシュボードに戻る
+            一覧に戻る
           </Link>
+          <div className="flex items-center gap-4 text-sm flex-wrap justify-end">
+            <Link href="/guide" className="text-primary underline underline-offset-4">
+              使い方を見る
+            </Link>
+            <Link href="/about" className="text-primary underline underline-offset-4">
+              このサービスについて
+            </Link>
+          </div>
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* Left: Map Selector */}
-          <div>
-            <Card className="h-full">
-              <CardHeader>
-                <CardTitle>マップ範囲を選択</CardTitle>
-                <CardDescription>矩形または自由ポリゴンで範囲を選択してください（保存は外接矩形）</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <RangeSelectorMap onBoundsChange={setSelectedBounds} />
-                {selectedBounds && (
-                  <div className="mt-4 p-3 bg-primary/10 rounded text-sm">
-                    <p className="font-semibold mb-2">選択された範囲:</p>
-                    <p>北: {selectedBounds.north.toFixed(4)}°</p>
-                    <p>南: {selectedBounds.south.toFixed(4)}°</p>
-                    <p>東: {selectedBounds.east.toFixed(4)}°</p>
-                    <p>西: {selectedBounds.west.toFixed(4)}°</p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </div>
+      <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <Card>
+          <CardHeader>
+            <CardTitle>地図を作る</CardTitle>
+            <CardDescription>上から順に進めるだけで作成できます。</CardDescription>
+          </CardHeader>
 
-          {/* Right: Map Details */}
-          <div>
-            <Card className="h-full">
-              <CardHeader>
-                <CardTitle>マップ情報</CardTitle>
-                <CardDescription>マップの名前と説明を入力してください</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <form onSubmit={handleCreate} className="space-y-4">
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">マップ名 *</label>
-                    <Input
-                      placeholder="例：高知県日曜市"
-                      value={mapName}
-                      onChange={(e) => setMapName(e.target.value)}
-                      disabled={isLoading}
-                      required
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">説明</label>
-                    <Textarea
-                      placeholder="マップの説明を入力..."
-                      value={description}
-                      onChange={(e) => setDescription(e.target.value)}
-                      disabled={isLoading}
-                      rows={4}
-                    />
-                  </div>
-                  {error && (
-                    <div className="p-3 bg-destructive/10 text-destructive rounded text-sm">{error}</div>
-                  )}
-                  <Button
-                    type="submit"
-                    disabled={isLoading || !selectedBounds}
-                    className="w-full"
+          <CardContent className="space-y-6">
+            <section className="space-y-3">
+              <h2 className="text-sm font-semibold">1. 場所の選び方を決める</h2>
+              <div className="grid gap-3 md:grid-cols-2">
+                {SELECTION_METHOD_OPTIONS.map((option) => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    onClick={() => {
+                      setSelectionMethod(option.id)
+                      setSelectedBounds(null)
+                      setError(null)
+                    }}
+                    className={`rounded-lg border p-4 text-left transition-colors ${
+                      selectionMethod === option.id ? 'border-primary bg-primary/10' : 'border-border hover:border-primary/40'
+                    }`}
                   >
-                    {isLoading ? 'マップを作成中...' : 'マップを作成'}
-                  </Button>
-                </form>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
+                    <p className="font-semibold">{option.title}</p>
+                    <p className="text-sm text-muted-foreground mt-1">{option.description}</p>
+                  </button>
+                ))}
+              </div>
+            </section>
+
+            <section className="space-y-2">
+              <h2 className="text-sm font-semibold">2. やることを確認する</h2>
+              <div className="rounded-md border p-3 text-sm space-y-1">
+                {steps.map((step, index) => (
+                  <p key={step.title} className={index === 0 ? 'font-semibold text-foreground' : 'text-muted-foreground'}>
+                    {step.title}：{step.description}
+                  </p>
+                ))}
+              </div>
+            </section>
+
+            <section className="space-y-3">
+              <h2 className="text-sm font-semibold">3. 地図で場所を選ぶ</h2>
+              <RangeSelectorMap onBoundsChange={setSelectedBounds} selectionMethod={selectionMethod} />
+            </section>
+
+            {error ? <div className="p-3 bg-destructive/10 text-destructive rounded text-sm">{error}</div> : null}
+
+            <Button
+              type="button"
+              onClick={handleCreate}
+              disabled={isLoading || !selectedBounds}
+              className="w-full h-12 text-base"
+              size="lg"
+            >
+              {isLoading ? (
+                <span className="inline-flex items-center gap-2">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  作成中...
+                </span>
+              ) : (
+                '地図を作る'
+              )}
+            </Button>
+          </CardContent>
+        </Card>
       </main>
     </div>
   )
