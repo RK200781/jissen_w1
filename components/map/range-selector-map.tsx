@@ -21,6 +21,7 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
   const [selectedRectangle, setSelectedRectangle] = useState<L.Rectangle | null>(null)
   const [polygonPointCount, setPolygonPointCount] = useState(0)
   const [selectedVertexIndex, setSelectedVertexIndex] = useState<number | null>(null)
+  const selectedVertexIndexRef = useRef<number | null>(null)
 
   const drawingState = useRef({
     isDrawing: false,
@@ -129,6 +130,7 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
       if (pState.vertices.length === 0) {
         setPolygonPointCount(0)
         onBoundsChange(null)
+        selectedVertexIndexRef.current = null
         setSelectedVertexIndex(null)
         return
       }
@@ -150,7 +152,8 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
           opacity: 0.95,
         }).addTo(mapInstance)
 
-        edgeLayer.on('click', () => {
+        edgeLayer.on('click', (event) => {
+          L.DomEvent.stopPropagation(event)
           toggleEdge(start, end)
           redrawPolygon()
         })
@@ -161,13 +164,14 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
       pState.vertices.forEach((vertex, index) => {
         const marker = L.circleMarker(vertex, {
           radius: 6,
-          color: selectedVertexIndex === index ? '#7c3aed' : '#1d4ed8',
+          color: selectedVertexIndexRef.current === index ? '#7c3aed' : '#1d4ed8',
           weight: 2,
-          fillColor: selectedVertexIndex === index ? '#c4b5fd' : '#60a5fa',
+          fillColor: selectedVertexIndexRef.current === index ? '#c4b5fd' : '#60a5fa',
           fillOpacity: 1,
         }).addTo(mapInstance)
 
-        marker.on('mousedown', () => {
+        marker.on('mousedown', (event) => {
+          L.DomEvent.stopPropagation(event)
           mapInstance.dragging.disable()
 
           const onMove = (e: L.LeafletMouseEvent) => {
@@ -185,10 +189,16 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
           mapInstance.on('mouseup', onUp)
         })
 
-        marker.on('click', () => {
+        marker.on('click', (event) => {
+          L.DomEvent.stopPropagation(event)
           setSelectedVertexIndex((prev) => {
-            if (prev === null) return index
+            if (prev === null) {
+              selectedVertexIndexRef.current = index
+              return index
+            }
+
             toggleEdge(prev, index)
+            selectedVertexIndexRef.current = null
             return null
           })
           redrawPolygon()
@@ -319,7 +329,7 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
       clearPolygonLayers()
       mapInstance.remove()
     }
-  }, [mode, onBoundsChange, selectedVertexIndex])
+  }, [mode, onBoundsChange])
 
   const handleReset = () => {
     const actions = (window as any).__rangeSelectorActions
@@ -334,6 +344,7 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
       actions.polygonState.current.vertices = []
       actions.polygonState.current.edges = []
       actions.polygonState.current.isManualConnectionMode = false
+      selectedVertexIndexRef.current = null
       setSelectedVertexIndex(null)
       actions.redrawPolygon()
     }
@@ -355,8 +366,9 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
       actions.polygonState.current.isManualConnectionMode = false
     }
 
-    if (selectedVertexIndex !== null && selectedVertexIndex >= vertices.length) {
-      setSelectedVertexIndex(null)
+    if (selectedVertexIndexRef.current !== null && selectedVertexIndexRef.current >= vertices.length) {
+        selectedVertexIndexRef.current = null
+        setSelectedVertexIndex(null)
     }
     actions.redrawPolygon()
   }
