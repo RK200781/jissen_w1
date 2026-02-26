@@ -21,6 +21,12 @@ interface SelectedBounds {
   west: number
 }
 
+const buildDefaultMapName = (bounds: SelectedBounds) => {
+  const centerLat = ((bounds.north + bounds.south) / 2).toFixed(3)
+  const centerLng = ((bounds.east + bounds.west) / 2).toFixed(3)
+  return `地点(${centerLat}, ${centerLng})の地図`
+}
+
 export default function NewMapPage() {
   const [selectionMethod, setSelectionMethod] = useState<SelectionMethod>('rectangle')
   const [selectedBounds, setSelectedBounds] = useState<SelectedBounds | null>(null)
@@ -44,7 +50,7 @@ export default function NewMapPage() {
       const mapId = Math.random().toString(36).substr(2, 9)
       const newMap = {
         id: mapId,
-        name: `新しい地図 ${new Date().toLocaleDateString('ja-JP')}`,
+        name: buildDefaultMapName(selectedBounds),
         description: null,
         bounds: selectedBounds,
         created_at: new Date().toISOString(),
@@ -82,56 +88,54 @@ export default function NewMapPage() {
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+      <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <Card>
           <CardHeader>
-            <CardTitle>まず、選び方を決める</CardTitle>
-            <CardDescription>作りたい場所の選び方を1つ選んでください。</CardDescription>
+            <CardTitle>地図を作る</CardTitle>
+            <CardDescription>上から順に進めるだけで作成できます。</CardDescription>
           </CardHeader>
-          <CardContent className="grid gap-3 md:grid-cols-2">
-            {SELECTION_METHOD_OPTIONS.map((option) => (
-              <button
-                key={option.id}
-                type="button"
-                onClick={() => {
-                  setSelectionMethod(option.id)
-                  setSelectedBounds(null)
-                  setError(null)
-                }}
-                className={`rounded-lg border p-4 text-left transition-colors ${
-                  selectionMethod === option.id ? 'border-primary bg-primary/10' : 'border-border hover:border-primary/40'
-                }`}
-              >
-                <p className="font-semibold">{option.title}</p>
-                <p className="text-sm text-muted-foreground mt-1">{option.description}</p>
-              </button>
-            ))}
-          </CardContent>
-        </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>かんたん3ステップ</CardTitle>
-            <CardDescription>今は {steps[0].title} を進めましょう。</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm">
-            {steps.map((step, index) => (
-              <p key={step.title} className={index === 0 ? 'font-semibold text-foreground' : 'text-muted-foreground'}>
-                {step.title}：{step.description}
-              </p>
-            ))}
-          </CardContent>
-        </Card>
+          <CardContent className="space-y-6">
+            <section className="space-y-3">
+              <h2 className="text-sm font-semibold">1. 場所の選び方を決める</h2>
+              <div className="grid gap-3 md:grid-cols-2">
+                {SELECTION_METHOD_OPTIONS.map((option) => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    onClick={() => {
+                      setSelectionMethod(option.id)
+                      setSelectedBounds(null)
+                      setError(null)
+                    }}
+                    className={`rounded-lg border p-4 text-left transition-colors ${
+                      selectionMethod === option.id ? 'border-primary bg-primary/10' : 'border-border hover:border-primary/40'
+                    }`}
+                  >
+                    <p className="font-semibold">{option.title}</p>
+                    <p className="text-sm text-muted-foreground mt-1">{option.description}</p>
+                  </button>
+                ))}
+              </div>
+            </section>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>{steps[0].title}</CardTitle>
-            <CardDescription>{steps[0].description}</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <RangeSelectorMap onBoundsChange={setSelectedBounds} selectionMethod={selectionMethod} />
+            <section className="space-y-2">
+              <h2 className="text-sm font-semibold">2. やることを確認する</h2>
+              <div className="rounded-md border p-3 text-sm space-y-1">
+                {steps.map((step, index) => (
+                  <p key={step.title} className={index === 0 ? 'font-semibold text-foreground' : 'text-muted-foreground'}>
+                    {step.title}：{step.description}
+                  </p>
+                ))}
+              </div>
+            </section>
 
-            {error && <div className="p-3 bg-destructive/10 text-destructive rounded text-sm">{error}</div>}
+            <section className="space-y-3">
+              <h2 className="text-sm font-semibold">3. 地図で場所を選ぶ</h2>
+              <RangeSelectorMap onBoundsChange={setSelectedBounds} selectionMethod={selectionMethod} />
+            </section>
+
+            {error ? <div className="p-3 bg-destructive/10 text-destructive rounded text-sm">{error}</div> : null}
 
             <Button
               type="button"
