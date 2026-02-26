@@ -73,27 +73,50 @@ export default function MapEditor({ mapId, bounds }: MapEditorProps) {
     saveMapById(mapId, updater)
   }
 
-  const project = useMemo(() => {
-    const lngRange = Math.max(bounds.east - bounds.west, 0.000001)
-    const latRange = Math.max(bounds.north - bounds.south, 0.000001)
+  const mapProjection = useMemo(() => {
+    const centerLat = (bounds.north + bounds.south) / 2
+    const centerLatRad = (centerLat * Math.PI) / 180
 
+    const metersPerDegreeLat = 111_132
+    const metersPerDegreeLng = Math.max(111_320 * Math.cos(centerLatRad), 1)
+
+    const widthMeters = Math.max((bounds.east - bounds.west) * metersPerDegreeLng, 1)
+    const heightMeters = Math.max((bounds.north - bounds.south) * metersPerDegreeLat, 1)
+
+    const scale = Math.min(CANVAS_WIDTH / widthMeters, CANVAS_HEIGHT / heightMeters)
+    const offsetX = (CANVAS_WIDTH - widthMeters * scale) / 2
+    const offsetY = (CANVAS_HEIGHT - heightMeters * scale) / 2
+
+    return {
+      metersPerDegreeLat,
+      metersPerDegreeLng,
+      scale,
+      offsetX,
+      offsetY,
+    }
+  }, [bounds])
+
+  const project = useMemo(() => {
     return (lat: number, lng: number): [number, number] => {
-      const x = ((lng - bounds.west) / lngRange) * CANVAS_WIDTH
-      const y = ((bounds.north - lat) / latRange) * CANVAS_HEIGHT
+      const xMeters = (lng - bounds.west) * mapProjection.metersPerDegreeLng
+      const yMeters = (bounds.north - lat) * mapProjection.metersPerDegreeLat
+
+      const x = xMeters * mapProjection.scale + mapProjection.offsetX
+      const y = yMeters * mapProjection.scale + mapProjection.offsetY
       return [x, y]
     }
-  }, [bounds])
+  }, [bounds, mapProjection])
 
   const unproject = useMemo(() => {
-    const lngRange = Math.max(bounds.east - bounds.west, 0.000001)
-    const latRange = Math.max(bounds.north - bounds.south, 0.000001)
-
     return (x: number, y: number): [number, number] => {
-      const lng = bounds.west + (x / CANVAS_WIDTH) * lngRange
-      const lat = bounds.north - (y / CANVAS_HEIGHT) * latRange
+      const xMeters = (x - mapProjection.offsetX) / mapProjection.scale
+      const yMeters = (y - mapProjection.offsetY) / mapProjection.scale
+
+      const lng = bounds.west + xMeters / mapProjection.metersPerDegreeLng
+      const lat = bounds.north - yMeters / mapProjection.metersPerDegreeLat
       return [lat, lng]
     }
-  }, [bounds])
+  }, [bounds, mapProjection])
 
   const generateBaseFeatureData = async () => {
     setIsGeneratingBase(true)
@@ -216,8 +239,16 @@ out geom;
     const x = ((clientX - rect.left) / rect.width) * CANVAS_WIDTH
     const y = ((clientY - rect.top) / rect.height) * CANVAS_HEIGHT
 
-    const clampedX = Math.max(0, Math.min(CANVAS_WIDTH, x))
-    const clampedY = Math.max(0, Math.min(CANVAS_HEIGHT, y))
+    const drawableWidth = (bounds.east - bounds.west) * mapProjection.metersPerDegreeLng * mapProjection.scale
+    const drawableHeight = (bounds.north - bounds.south) * mapProjection.metersPerDegreeLat * mapProjection.scale
+
+    const minX = mapProjection.offsetX
+    const maxX = mapProjection.offsetX + drawableWidth
+    const minY = mapProjection.offsetY
+    const maxY = mapProjection.offsetY + drawableHeight
+
+    const clampedX = Math.max(minX, Math.min(maxX, x))
+    const clampedY = Math.max(minY, Math.min(maxY, y))
     const [lat, lng] = unproject(clampedX, clampedY)
     const location: [number, number] = [lat, lng]
 

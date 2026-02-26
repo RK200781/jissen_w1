@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { AlertCircle } from 'lucide-react'
 
 type SelectionMode = 'rectangle' | 'polygon'
-type PolygonInteractionMode = 'move' | 'connect'
+type PolygonEditMode = 'place' | 'connect'
 
 interface RangeSelectorMapProps {
   onBoundsChange: (bounds: { north: number; south: number; east: number; west: number } | null) => void
@@ -21,8 +21,11 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
   const [mode, setMode] = useState<SelectionMode>('rectangle')
   const [selectedRectangle, setSelectedRectangle] = useState<L.Rectangle | null>(null)
   const [polygonPointCount, setPolygonPointCount] = useState(0)
-  const [polygonInteractionMode, setPolygonInteractionMode] = useState<PolygonInteractionMode>('move')
+  const [polygonEditMode, setPolygonEditMode] = useState<PolygonEditMode>('place')
   const [selectedVertexIndex, setSelectedVertexIndex] = useState<number | null>(null)
+
+  const polygonEditModeRef = useRef<PolygonEditMode>('place')
+  const selectedVertexIndexRef = useRef<number | null>(null)
 
   const drawingState = useRef({
     isDrawing: false,
@@ -38,6 +41,14 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
     edgeLayers: [] as L.Polyline[],
     vertexMarkers: [] as L.CircleMarker[],
   })
+
+  useEffect(() => {
+    polygonEditModeRef.current = polygonEditMode
+    if (polygonEditMode === 'place') {
+      selectedVertexIndexRef.current = null
+      setSelectedVertexIndex(null)
+    }
+  }, [polygonEditMode])
 
   useEffect(() => {
     if (!mapContainer.current) return
@@ -80,26 +91,12 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
 
     const toggleEdge = (a: number, b: number) => {
       if (a === b) return
+
       if (hasEdge(a, b)) {
         removeEdge(a, b)
       } else {
         addEdge(a, b)
       }
-    }
-
-    const autoConnectLatestVertex = () => {
-      const pState = polygonState.current
-      const index = pState.vertices.length - 1
-
-      if (index <= 0) return
-      if (index === 1) {
-        addEdge(0, 1)
-        return
-      }
-
-      removeEdge(index - 1, 0)
-      addEdge(index - 1, index)
-      addEdge(index, 0)
     }
 
     const emitBoundsFromLatLngs = (latLngs: L.LatLng[]) => {
@@ -125,6 +122,7 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
       if (pState.vertices.length === 0) {
         setPolygonPointCount(0)
         onBoundsChange(null)
+        selectedVertexIndexRef.current = null
         setSelectedVertexIndex(null)
         return
       }
@@ -146,46 +144,67 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
           opacity: 0.95,
         }).addTo(mapInstance)
 
+        edgeLayer.on('click', (event) => {
+          if (polygonEditModeRef.current !== 'connect') return
+          L.DomEvent.stopPropagation(event)
+          toggleEdge(start, end)
+          redrawPolygon()
+        })
+
         pState.edgeLayers.push(edgeLayer)
       })
 
       pState.vertices.forEach((vertex, index) => {
         const marker = L.circleMarker(vertex, {
           radius: 6,
-          color: selectedVertexIndex === index ? '#7c3aed' : '#1d4ed8',
+          color: selectedVertexIndexRef.current === index ? '#7c3aed' : '#1d4ed8',
           weight: 2,
-          fillColor: selectedVertexIndex === index ? '#c4b5fd' : '#60a5fa',
+          fillColor: selectedVertexIndexRef.current === index ? '#c4b5fd' : '#60a5fa',
           fillOpacity: 1,
         }).addTo(mapInstance)
 
-        if (polygonInteractionMode === 'move') {
-          marker.on('mousedown', () => {
-            mapInstance.dragging.disable()
+        marker.on('mousedown', (event) => {
+          if (polygonEditModeRef.current !== 'place') return
+          L.DomEvent.stopPropagation(event)
+          mapInstance.dragging.disable()
 
-            const onMove = (e: L.LeafletMouseEvent) => {
-              pState.vertices[index] = e.latlng
-              redrawPolygon()
-            }
+          const onMove = (e: L.LeafletMouseEvent) => {
+            pState.vertices[index] = e.latlng
+            redrawPolygon()
+          }
 
-            const onUp = () => {
-              mapInstance.dragging.enable()
-              mapInstance.off('mousemove', onMove)
-              mapInstance.off('mouseup', onUp)
-            }
+          const onUp = () => {
+            mapInstance.dragging.enable()
+            mapInstance.off('mousemove', onMove)
+            mapInstance.off('mouseup', onUp)
+          }
 
-            mapInstance.on('mousemove', onMove)
-            mapInstance.on('mouseup', onUp)
-          })
-        }
+          mapInstance.on('mousemove', onMove)
+          mapInstance.on('mouseup', onUp)
+        })
 
-        marker.on('click', () => {
-          if (polygonInteractionMode !== 'connect') return
+        marker.on('click', (event) => {
+          if (polygonEditModeRef.current !== 'connect') return
+          L.DomEvent.stopPropagation(event)
 
-          setSelectedVertexIndex((prev) => {
-            if (prev === null) return index
-            toggleEdge(prev, index)
-            return null
-          })
+          const selectedIndex = selectedVertexIndexRef.current
+          if (selectedIndex === null) {
+            selectedVertexIndexRef.current = index
+            setSelectedVertexIndex(index)
+            redrawPolygon()
+            return
+          }
+
+          if (selectedIndex === index) {
+            selectedVertexIndexRef.current = null
+            setSelectedVertexIndex(null)
+            redrawPolygon()
+            return
+          }
+
+          toggleEdge(selectedIndex, index)
+          selectedVertexIndexRef.current = null
+          setSelectedVertexIndex(null)
           redrawPolygon()
         })
 
@@ -283,13 +302,12 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
 
     const onMapClick = (e: L.LeafletMouseEvent) => {
       if (mode !== 'polygon') return
-      if (polygonInteractionMode !== 'move') return
+      if (polygonEditModeRef.current !== 'place') return
 
       const pState = polygonState.current
       if (pState.vertices.length >= MAX_POLYGON_POINTS) return
 
       pState.vertices.push(e.latlng)
-      autoConnectLatestVertex()
       redrawPolygon()
     }
 
@@ -316,7 +334,7 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
       clearPolygonLayers()
       mapInstance.remove()
     }
-  }, [mode, onBoundsChange, polygonInteractionMode, selectedVertexIndex])
+  }, [mode, onBoundsChange])
 
   const handleReset = () => {
     const actions = (window as any).__rangeSelectorActions
@@ -330,6 +348,7 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
     if (actions?.polygonState) {
       actions.polygonState.current.vertices = []
       actions.polygonState.current.edges = []
+      selectedVertexIndexRef.current = null
       setSelectedVertexIndex(null)
       actions.redrawPolygon()
     }
@@ -346,9 +365,12 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
     const removedIndex = vertices.length - 1
     vertices.pop()
     actions.polygonState.current.edges = edges.filter(([start, end]) => start !== removedIndex && end !== removedIndex)
-    if (selectedVertexIndex !== null && selectedVertexIndex >= vertices.length) {
+
+    if (selectedVertexIndexRef.current !== null && selectedVertexIndexRef.current >= vertices.length) {
+      selectedVertexIndexRef.current = null
       setSelectedVertexIndex(null)
     }
+
     actions.redrawPolygon()
   }
 
@@ -359,7 +381,7 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
         <span>
           {mode === 'rectangle'
             ? '矩形モード: 地図をダブルクリック後にドラッグして範囲を選択'
-            : `自由ポリゴンモード: クリックで点を追加（最大${MAX_POLYGON_POINTS}点）、点をドラッグして調整`}
+            : '自由ポリゴンモード: 点を置くモードで点を配置し、線をつなぐモードで点同士を接続'}
         </span>
       </div>
 
@@ -377,32 +399,25 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
           <div className="grid grid-cols-2 gap-2">
             <Button
               type="button"
-              variant={polygonInteractionMode === 'move' ? 'default' : 'outline'}
-              onClick={() => {
-                setPolygonInteractionMode('move')
-                setSelectedVertexIndex(null)
-              }}
+              variant={polygonEditMode === 'place' ? 'default' : 'outline'}
+              onClick={() => setPolygonEditMode('place')}
             >
-              点を移動/追加
+              点を置く
             </Button>
             <Button
               type="button"
-              variant={polygonInteractionMode === 'connect' ? 'default' : 'outline'}
-              onClick={() => {
-                setPolygonInteractionMode('connect')
-                setSelectedVertexIndex(null)
-              }}
+              variant={polygonEditMode === 'connect' ? 'default' : 'outline'}
+              onClick={() => setPolygonEditMode('connect')}
             >
-              線を繋ぎ替え
+              線でつなぐ
             </Button>
           </div>
 
-          {polygonInteractionMode === 'connect' && (
-            <p className="text-xs text-muted-foreground px-1">
-              2つの点を順番にクリックすると、点同士の線を追加/削除できます。
-              {selectedVertexIndex !== null ? `（${selectedVertexIndex + 1}点目を選択中）` : ''}
-            </p>
-          )}
+          <p className="text-xs text-muted-foreground px-1">
+            {polygonEditMode === 'place'
+              ? `地図クリックで点を追加（最大${MAX_POLYGON_POINTS}点）。このモードでは線は自動でつながりません。`
+              : `2つの点を順番にクリックして線を追加/削除。線を直接クリックしても削除できます。${selectedVertexIndex !== null ? `（${selectedVertexIndex + 1}点目を選択中）` : ''}`}
+          </p>
 
           <div className="grid grid-cols-2 gap-2">
             <Button type="button" variant="outline" onClick={handleUndoPolygonPoint}>
