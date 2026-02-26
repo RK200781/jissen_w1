@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { MapPin, Sparkles, Hand } from 'lucide-react'
-import { MAP_CREATION_STEPS } from '@/lib/guide-steps'
+import { MAP_CREATION_STEPS_BY_METHOD } from '@/lib/guide-steps'
 
 export default function Home() {
   return (
@@ -60,7 +60,7 @@ export default function Home() {
 
         <section className="py-14 space-y-8 max-w-3xl mx-auto">
           <h2 className="text-3xl font-bold text-center">作り方</h2>
-          {MAP_CREATION_STEPS.map((step) => (
+          {MAP_CREATION_STEPS_BY_METHOD.rectangle.map((step) => (
             <div key={step.title} className="rounded-lg border bg-card p-5">
               <p className="font-semibold">{step.title}</p>
               <p className="text-muted-foreground mt-1">{step.description}</p>

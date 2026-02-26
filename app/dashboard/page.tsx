@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Plus, Map, BookOpen } from 'lucide-react'
+import { Plus, Map, BookOpen, Home } from 'lucide-react'
 import { loadMaps, saveMaps, type LocalMapData } from '@/lib/local-maps'
 
 export default function DashboardPage() {
@@ -29,12 +29,20 @@ export default function DashboardPage() {
       <header className="border-b bg-card">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
           <h1 className="text-2xl font-bold">地図を作る</h1>
-          <Button asChild variant="outline" size="sm" className="gap-2">
-            <Link href="/guide">
-              <BookOpen className="w-4 h-4" />
-              はじめての方へ
-            </Link>
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button asChild variant="outline" size="sm" className="gap-2">
+              <Link href="/">
+                <Home className="w-4 h-4" />
+                ホームへ
+              </Link>
+            </Button>
+            <Button asChild variant="outline" size="sm" className="gap-2">
+              <Link href="/guide">
+                <BookOpen className="w-4 h-4" />
+                はじめての方へ
+              </Link>
+            </Button>
+          </div>
         </div>
       </header>
 

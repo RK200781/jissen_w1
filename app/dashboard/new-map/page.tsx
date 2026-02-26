@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { ArrowLeft, Loader2 } from 'lucide-react'
 import Link from 'next/link'
-import { MAP_CREATION_STEPS } from '@/lib/guide-steps'
+import { MAP_CREATION_STEPS_BY_METHOD, type SelectionMethod, SELECTION_METHOD_OPTIONS } from '@/lib/guide-steps'
 
 const RangeSelectorMap = dynamic(() => import('@/components/map/range-selector-map'), {
   ssr: false,
@@ -22,16 +22,19 @@ interface SelectedBounds {
 }
 
 export default function NewMapPage() {
+  const [selectionMethod, setSelectionMethod] = useState<SelectionMethod>('rectangle')
   const [selectedBounds, setSelectedBounds] = useState<SelectedBounds | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const router = useRouter()
 
+  const steps = MAP_CREATION_STEPS_BY_METHOD[selectionMethod]
+
   const handleCreate = async () => {
     setError(null)
 
     if (!selectedBounds) {
-      setError('先に場所を囲んでください')
+      setError('先に場所を選んでください')
       return
     }
 
@@ -77,12 +80,38 @@ export default function NewMapPage() {
       <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
         <Card>
           <CardHeader>
+            <CardTitle>まず、選び方を決める</CardTitle>
+            <CardDescription>作りたい場所の選び方を1つ選んでください。</CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-3 md:grid-cols-2">
+            {SELECTION_METHOD_OPTIONS.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                onClick={() => {
+                  setSelectionMethod(option.id)
+                  setSelectedBounds(null)
+                  setError(null)
+                }}
+                className={`rounded-lg border p-4 text-left transition-colors ${
+                  selectionMethod === option.id ? 'border-primary bg-primary/10' : 'border-border hover:border-primary/40'
+                }`}
+              >
+                <p className="font-semibold">{option.title}</p>
+                <p className="text-sm text-muted-foreground mt-1">{option.description}</p>
+              </button>
+            ))}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
             <CardTitle>かんたん3ステップ</CardTitle>
-            <CardDescription>今は ① 場所を囲む を進めましょう。</CardDescription>
+            <CardDescription>今は {steps[0].title} を進めましょう。</CardDescription>
           </CardHeader>
           <CardContent className="space-y-2 text-sm">
-            {MAP_CREATION_STEPS.map((step) => (
-              <p key={step.title} className={step.title.startsWith('①') ? 'font-semibold text-foreground' : 'text-muted-foreground'}>
+            {steps.map((step, index) => (
+              <p key={step.title} className={index === 0 ? 'font-semibold text-foreground' : 'text-muted-foreground'}>
                 {step.title}：{step.description}
               </p>
             ))}
@@ -91,11 +120,11 @@ export default function NewMapPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>① 場所を囲む</CardTitle>
-            <CardDescription>地図で作りたい場所を囲んでください。</CardDescription>
+            <CardTitle>{steps[0].title}</CardTitle>
+            <CardDescription>{steps[0].description}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <RangeSelectorMap onBoundsChange={setSelectedBounds} />
+            <RangeSelectorMap onBoundsChange={setSelectedBounds} selectionMethod={selectionMethod} />
 
             {error && <div className="p-3 bg-destructive/10 text-destructive rounded text-sm">{error}</div>}
 
@@ -112,7 +141,7 @@ export default function NewMapPage() {
                   作成中...
                 </span>
               ) : (
-                '② 地図を作る'
+                '地図を作る'
               )}
             </Button>
           </CardContent>
