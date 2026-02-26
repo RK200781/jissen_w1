@@ -1,30 +1,23 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Plus, LogOut, Map, Home } from 'lucide-react'
+import { Plus, Map, BookOpen } from 'lucide-react'
 import { loadMaps, saveMaps, type LocalMapData } from '@/lib/local-maps'
 
 export default function DashboardPage() {
   const [maps, setMaps] = useState<LocalMapData[]>([])
   const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const router = useRouter()
 
   useEffect(() => {
     setMaps(loadMaps())
     setIsLoading(false)
   }, [])
 
-  const handleLogout = async () => {
-    router.push('/')
-  }
-
   const handleDeleteMap = async (mapId: string) => {
-    if (!confirm('このマップを削除しますか？')) return
+    if (!confirm('この地図を削除しますか？')) return
 
     const next = maps.filter((m) => m.id !== mapId)
     setMaps(next)
@@ -35,39 +28,29 @@ export default function DashboardPage() {
     <div className="min-h-screen bg-background">
       <header className="border-b bg-card">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
-          <h1 className="text-2xl font-bold">Locap ダッシュボード</h1>
-          <div className="flex items-center gap-2">
-            <Button asChild variant="ghost" size="sm" className="gap-2">
-              <Link href="/">
-                <Home className="w-4 h-4" />
-                ホームへ
-              </Link>
-            </Button>
-            <Button variant="outline" size="sm" onClick={handleLogout} className="gap-2">
-              <LogOut className="w-4 h-4" />
-              ログアウト
-            </Button>
-          </div>
+          <h1 className="text-2xl font-bold">地図を作る</h1>
+          <Button asChild variant="outline" size="sm" className="gap-2">
+            <Link href="/guide">
+              <BookOpen className="w-4 h-4" />
+              はじめての方へ
+            </Link>
+          </Button>
         </div>
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="flex items-center justify-between mb-8">
           <div>
-            <h2 className="text-xl font-semibold">マイマップ</h2>
-            <p className="text-muted-foreground">作成したマップを管理します</p>
+            <h2 className="text-xl font-semibold">あなたの地図</h2>
+            <p className="text-muted-foreground">続きから作業できます</p>
           </div>
-          <Button asChild className="gap-2">
+          <Button asChild className="gap-2 h-11 px-5 text-base">
             <Link href="/dashboard/new-map">
-              <Plus className="w-4 h-4" />
-              新規マップ作成
+              <Plus className="w-5 h-5" />
+              新しく作る
             </Link>
           </Button>
         </div>
-
-        {error && (
-          <div className="mb-4 p-4 bg-destructive/10 text-destructive rounded-lg text-sm">{error}</div>
-        )}
 
         {isLoading ? (
           <div className="text-center py-12">読み込み中...</div>
@@ -75,10 +58,10 @@ export default function DashboardPage() {
           <Card>
             <CardContent className="pt-12 text-center">
               <Map className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-              <h3 className="font-semibold mb-2">マップがまだ作成されていません</h3>
-              <p className="text-muted-foreground mb-4">最初のマップを作成して始めましょう</p>
+              <h3 className="font-semibold mb-2">まだ地図がありません</h3>
+              <p className="text-muted-foreground mb-4">「新しく作る」から始めましょう</p>
               <Button asChild>
-                <Link href="/dashboard/new-map">新規マップ作成</Link>
+                <Link href="/dashboard/new-map">新しく作る</Link>
               </Button>
             </CardContent>
           </Card>
@@ -93,13 +76,9 @@ export default function DashboardPage() {
                 <CardContent>
                   <div className="flex gap-2">
                     <Button asChild variant="default" size="sm" className="flex-1">
-                      <Link href={`/dashboard/editor/${map.id}`}>編集</Link>
+                      <Link href={`/dashboard/editor/${map.id}`}>続きを開く</Link>
                     </Button>
-                    <Button
-                      variant="destructive"
-                      size="sm"
-                      onClick={() => handleDeleteMap(map.id)}
-                    >
+                    <Button variant="destructive" size="sm" onClick={() => handleDeleteMap(map.id)}>
                       削除
                     </Button>
                   </div>

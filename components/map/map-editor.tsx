@@ -294,7 +294,7 @@ out geom;
         </Button>
         <Button size="sm" className="shadow gap-1" onClick={generateBaseFeatureData} disabled={isGeneratingBase}>
           <RefreshCw className="w-4 h-4" />
-          {isGeneratingBase ? '再生成中...' : '土台再生成'}
+          {isGeneratingBase ? '再生成中...' : '道と建物を読み直す'}
         </Button>
         <Button
           size="sm"
@@ -303,7 +303,7 @@ out geom;
           onClick={handleSaveAndBackToDashboard}
           disabled={isSavingMap}
         >
-          {isSavingMap ? '保存中...' : 'マップを保存して戻る'}
+          {isSavingMap ? '保存中...' : '保存して一覧へ戻る'}
         </Button>
       </div>
 
@@ -391,17 +391,17 @@ out geom;
       {isFacilityPanelOpen && (
         <div className="absolute top-16 right-4 z-20 w-[360px] max-w-[calc(100vw-2rem)] max-h-[calc(100%-5rem)] overflow-hidden rounded-lg border bg-card shadow-lg flex flex-col">
           <div className="p-4 border-b space-y-2">
-            <p className="font-semibold text-sm">土台編集</p>
+            <p className="font-semibold text-sm">道の見え方</p>
             <div>
-              <label className="text-xs text-muted-foreground">道幅: {roadWidth}px</label>
+              <label className="text-xs text-muted-foreground">道の太さ:  {roadWidth}px</label>
               <Slider value={[roadWidth]} min={1} max={12} step={1} onValueChange={(v) => setRoadWidth(v[0])} />
             </div>
           </div>
 
           <div className="flex-1 min-h-0 overflow-y-scroll">
             <div className="p-4 border-b">
-              <p className="font-semibold text-sm">オブジェクトを追加</p>
-              <p className="text-xs text-muted-foreground">個数を指定して複数同時に配置できます（追加後はドラッグで位置調整）</p>
+              <p className="font-semibold text-sm">目印を追加</p>
+              <p className="text-xs text-muted-foreground">追加した後は、つかんで動かせます。</p>
             </div>
 
             <form onSubmit={handleAddFacility} className="p-4 space-y-3 border-b">
@@ -412,7 +412,7 @@ out geom;
                 disabled={addingFacility}
               />
               <div className="space-y-2">
-                <label className="text-xs text-muted-foreground">同時配置数</label>
+                <label className="text-xs text-muted-foreground">追加する数</label>
                 <Input
                   type="number"
                   min={1}
@@ -442,10 +442,10 @@ out geom;
               </Button>
             </form>
 
-            <div className="p-4 border-b text-sm font-semibold">施設一覧 ({facilities.length})</div>
+            <div className="p-4 border-b text-sm font-semibold">目印の一覧 ({facilities.length})</div>
             <div className="p-4 space-y-2">
               {facilities.length === 0 ? (
-                <p className="text-sm text-muted-foreground">施設がまだ追加されていません</p>
+                <p className="text-sm text-muted-foreground">まだ目印はありません</p>
               ) : (
                 facilities.map((facility) => (
                   <div key={facility.id} className="p-2 rounded border hover:bg-muted space-y-2">
@@ -469,7 +469,7 @@ out geom;
                           <Button type="button" size="sm" onClick={() => saveFacilityName(facility.id)} disabled={!editingFacilityName.trim()}>保存</Button>
                         </>
                       ) : (
-                        <Button type="button" size="sm" variant="outline" onClick={() => startEditingFacilityName(facility)}>名前変更</Button>
+                        <Button type="button" size="sm" variant="outline" onClick={() => startEditingFacilityName(facility)}>名前を変える</Button>
                       )}
                       <button
                         onClick={() => handleDeleteFacility(facility.id)}
