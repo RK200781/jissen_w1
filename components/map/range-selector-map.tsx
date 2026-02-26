@@ -187,16 +187,24 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
           if (polygonEditModeRef.current !== 'connect') return
           L.DomEvent.stopPropagation(event)
 
-          setSelectedVertexIndex((prev) => {
-            if (prev === null) {
-              selectedVertexIndexRef.current = index
-              return index
-            }
+          const selectedIndex = selectedVertexIndexRef.current
+          if (selectedIndex === null) {
+            selectedVertexIndexRef.current = index
+            setSelectedVertexIndex(index)
+            redrawPolygon()
+            return
+          }
 
-            toggleEdge(prev, index)
+          if (selectedIndex === index) {
             selectedVertexIndexRef.current = null
-            return null
-          })
+            setSelectedVertexIndex(null)
+            redrawPolygon()
+            return
+          }
+
+          toggleEdge(selectedIndex, index)
+          selectedVertexIndexRef.current = null
+          setSelectedVertexIndex(null)
           redrawPolygon()
         })
 
