@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { AlertCircle } from 'lucide-react'
 
 type SelectionMode = 'rectangle' | 'polygon'
+type PolygonInteractionMode = 'move' | 'connect'
 
 interface RangeSelectorMapProps {
   onBoundsChange: (bounds: { north: number; south: number; east: number; west: number } | null) => void
@@ -20,6 +21,9 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
   const [mode, setMode] = useState<SelectionMode>('rectangle')
   const [selectedRectangle, setSelectedRectangle] = useState<L.Rectangle | null>(null)
   const [polygonPointCount, setPolygonPointCount] = useState(0)
+  const [polygonInteractionMode, setPolygonInteractionMode] = useState<PolygonInteractionMode>('move')
+  const [connectDragStartIndex, setConnectDragStartIndex] = useState<number | null>(null)
+  const [connectDragLatLng, setConnectDragLatLng] = useState<L.LatLng | null>(null)
 
   const drawingState = useRef({
     isDrawing: false,
@@ -31,9 +35,10 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
 
   const polygonState = useRef({
     vertices: [] as L.LatLng[],
-    polygonLayer: null as L.Polygon | null,
-    edgeLayer: null as L.Polyline | null,
+    edges: [] as [number, number][],
+    edgeLayers: [] as L.Polyline[],
     vertexMarkers: [] as L.CircleMarker[],
+    previewLayer: null as L.Polyline | null,
   })
 
   useEffect(() => {
@@ -50,14 +55,48 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
 
     const mapInstance = map.current
 
+    const makeEdgeKey = (a: number, b: number) => `${Math.min(a, b)}-${Math.max(a, b)}`
+
+    const hasEdge = (a: number, b: number) => {
+      const key = makeEdgeKey(a, b)
+      return polygonState.current.edges.some(([x, y]) => makeEdgeKey(x, y) === key)
+    }
+
+    const removeEdge = (a: number, b: number) => {
+      const key = makeEdgeKey(a, b)
+      polygonState.current.edges = polygonState.current.edges.filter(([x, y]) => makeEdgeKey(x, y) !== key)
+    }
+
+    const addEdge = (a: number, b: number) => {
+      if (a === b || hasEdge(a, b)) return
+      polygonState.current.edges.push([a, b])
+    }
+
     const clearPolygonLayers = () => {
       const pState = polygonState.current
-      if (pState.polygonLayer) mapInstance.removeLayer(pState.polygonLayer)
-      if (pState.edgeLayer) mapInstance.removeLayer(pState.edgeLayer)
+      pState.edgeLayers.forEach((layer) => mapInstance.removeLayer(layer))
       pState.vertexMarkers.forEach((marker) => mapInstance.removeLayer(marker))
-      pState.polygonLayer = null
-      pState.edgeLayer = null
+      if (pState.previewLayer) {
+        mapInstance.removeLayer(pState.previewLayer)
+        pState.previewLayer = null
+      }
+      pState.edgeLayers = []
       pState.vertexMarkers = []
+    }
+
+    const autoConnectLatestVertex = () => {
+      const pState = polygonState.current
+      const index = pState.vertices.length - 1
+
+      if (index <= 0) return
+      if (index === 1) {
+        addEdge(0, 1)
+        return
+      }
+
+      removeEdge(index - 1, 0)
+      addEdge(index - 1, index)
+      addEdge(index, 0)
     }
 
     const emitBoundsFromLatLngs = (latLngs: L.LatLng[]) => {
@@ -83,50 +122,106 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
       if (pState.vertices.length === 0) {
         setPolygonPointCount(0)
         onBoundsChange(null)
+        setConnectDragStartIndex(null)
+        setConnectDragLatLng(null)
         return
       }
 
-      pState.edgeLayer = L.polyline(pState.vertices, {
-        color: '#f97316',
-        weight: 2,
-        opacity: 0.9,
-      }).addTo(mapInstance)
+      pState.edges = pState.edges.filter(([start, end]) => {
+        return start >= 0 && end >= 0 && start < pState.vertices.length && end < pState.vertices.length && start !== end
+      })
 
-      if (pState.vertices.length >= 3) {
-        pState.polygonLayer = L.polygon(pState.vertices, {
-          color: '#dc2626',
+      const uniqueEdges = new Map<string, [number, number]>()
+      pState.edges.forEach(([start, end]) => {
+        uniqueEdges.set(makeEdgeKey(start, end), [start, end])
+      })
+      pState.edges = Array.from(uniqueEdges.values())
+
+      pState.edges.forEach(([start, end]) => {
+        const edgeLayer = L.polyline([pState.vertices[start], pState.vertices[end]], {
+          color: '#f97316',
+          weight: 3,
+          opacity: 0.95,
+        }).addTo(mapInstance)
+
+        if (polygonInteractionMode === 'connect') {
+          edgeLayer.on('click', () => {
+            removeEdge(start, end)
+            redrawPolygon()
+          })
+        }
+
+        pState.edgeLayers.push(edgeLayer)
+      })
+
+      if (
+        polygonInteractionMode === 'connect' &&
+        connectDragStartIndex !== null &&
+        connectDragLatLng &&
+        pState.vertices[connectDragStartIndex]
+      ) {
+        pState.previewLayer = L.polyline([pState.vertices[connectDragStartIndex], connectDragLatLng], {
+          color: '#7c3aed',
           weight: 2,
-          fillColor: '#ef4444',
-          fillOpacity: 0.2,
+          opacity: 0.85,
+          dashArray: '6 6',
         }).addTo(mapInstance)
       }
 
       pState.vertices.forEach((vertex, index) => {
+        const isConnectSource = polygonInteractionMode === 'connect' && connectDragStartIndex === index
         const marker = L.circleMarker(vertex, {
           radius: 6,
-          color: '#1d4ed8',
+          color: isConnectSource ? '#7c3aed' : '#1d4ed8',
           weight: 2,
-          fillColor: '#60a5fa',
+          fillColor: isConnectSource ? '#c4b5fd' : '#60a5fa',
           fillOpacity: 1,
         }).addTo(mapInstance)
 
-        marker.on('mousedown', () => {
-          mapInstance.dragging.disable()
+        if (polygonInteractionMode === 'move') {
+          marker.on('mousedown', () => {
+            mapInstance.dragging.disable()
 
-          const onMove = (e: L.LeafletMouseEvent) => {
-            pState.vertices[index] = e.latlng
+            const onMove = (e: L.LeafletMouseEvent) => {
+              pState.vertices[index] = e.latlng
+              redrawPolygon()
+            }
+
+            const onUp = () => {
+              mapInstance.dragging.enable()
+              mapInstance.off('mousemove', onMove)
+              mapInstance.off('mouseup', onUp)
+            }
+
+            mapInstance.on('mousemove', onMove)
+            mapInstance.on('mouseup', onUp)
+          })
+        }
+
+        if (polygonInteractionMode === 'connect') {
+          marker.on('mousedown', (e: L.LeafletMouseEvent) => {
+            L.DomEvent.stopPropagation(e)
+            setConnectDragStartIndex(index)
+            setConnectDragLatLng(e.latlng)
+          })
+
+          marker.on('mouseup', (e: L.LeafletMouseEvent) => {
+            L.DomEvent.stopPropagation(e)
+
+            if (connectDragStartIndex === null) return
+            if (connectDragStartIndex === index) {
+              setConnectDragStartIndex(null)
+              setConnectDragLatLng(null)
+              redrawPolygon()
+              return
+            }
+
+            addEdge(connectDragStartIndex, index)
+            setConnectDragStartIndex(null)
+            setConnectDragLatLng(null)
             redrawPolygon()
-          }
-
-          const onUp = () => {
-            mapInstance.dragging.enable()
-            mapInstance.off('mousemove', onMove)
-            mapInstance.off('mouseup', onUp)
-          }
-
-          mapInstance.on('mousemove', onMove)
-          mapInstance.on('mouseup', onUp)
-        })
+          })
+        }
 
         pState.vertexMarkers.push(marker)
       })
@@ -157,76 +252,92 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
     }
 
     const onMouseMove = (e: L.LeafletMouseEvent) => {
-      if (mode !== 'rectangle') return
+      if (mode === 'rectangle') {
+        const state = drawingState.current
+        if (!state.isDrawing || !state.startLatLng) return
 
-      const state = drawingState.current
-      if (!state.isDrawing || !state.startLatLng) return
+        if (state.tempRectangle) mapInstance.removeLayer(state.tempRectangle)
 
-      if (state.tempRectangle) mapInstance.removeLayer(state.tempRectangle)
+        const bounds = L.latLngBounds(state.startLatLng, e.latlng)
+        state.tempRectangle = L.rectangle(bounds, {
+          color: '#2563eb',
+          weight: 2,
+          fillColor: '#3b82f6',
+          fillOpacity: 0.15,
+        }).addTo(mapInstance)
 
-      const bounds = L.latLngBounds(state.startLatLng, e.latlng)
-      state.tempRectangle = L.rectangle(bounds, {
-        color: '#2563eb',
-        weight: 2,
-        fillColor: '#3b82f6',
-        fillOpacity: 0.15,
-      }).addTo(mapInstance)
-    }
-
-    const onMouseUp = (e: L.LeafletMouseEvent | L.LeafletEvent) => {
-      if (mode !== 'rectangle') return
-
-      const state = drawingState.current
-      if (!state.isDrawing || !state.isDoubleClick || !state.startLatLng || !('latlng' in e)) {
-        state.isDrawing = false
-        state.isDoubleClick = false
         return
       }
 
-      state.isDrawing = false
-      state.isDoubleClick = false
-
-      if (state.tempRectangle) {
-        mapInstance.removeLayer(state.tempRectangle)
-        state.tempRectangle = null
+      if (mode === 'polygon' && polygonInteractionMode === 'connect' && connectDragStartIndex !== null) {
+        setConnectDragLatLng(e.latlng)
+        redrawPolygon()
       }
+    }
 
-      const distance = state.startLatLng.distanceTo(e.latlng)
-      if (distance < 300) {
+    const onMouseUp = (e: L.LeafletMouseEvent | L.LeafletEvent) => {
+      if (mode === 'rectangle') {
+        const state = drawingState.current
+        if (!state.isDrawing || !state.isDoubleClick || !state.startLatLng || !('latlng' in e)) {
+          state.isDrawing = false
+          state.isDoubleClick = false
+          return
+        }
+
+        state.isDrawing = false
+        state.isDoubleClick = false
+
+        if (state.tempRectangle) {
+          mapInstance.removeLayer(state.tempRectangle)
+          state.tempRectangle = null
+        }
+
+        const distance = state.startLatLng.distanceTo(e.latlng)
+        if (distance < 300) {
+          state.startLatLng = null
+          return
+        }
+
+        if (state.selectedRectangle) mapInstance.removeLayer(state.selectedRectangle)
+
+        const bounds = L.latLngBounds(state.startLatLng, e.latlng)
+        const rectangle = L.rectangle(bounds, {
+          color: '#dc2626',
+          weight: 2,
+          fillColor: '#ef4444',
+          fillOpacity: 0.2,
+        }).addTo(mapInstance)
+
+        state.selectedRectangle = rectangle
+        setSelectedRectangle(rectangle)
+
+        onBoundsChange({
+          north: Math.max(state.startLatLng.lat, e.latlng.lat),
+          south: Math.min(state.startLatLng.lat, e.latlng.lat),
+          east: Math.max(state.startLatLng.lng, e.latlng.lng),
+          west: Math.min(state.startLatLng.lng, e.latlng.lng),
+        })
+
         state.startLatLng = null
         return
       }
 
-      if (state.selectedRectangle) mapInstance.removeLayer(state.selectedRectangle)
-
-      const bounds = L.latLngBounds(state.startLatLng, e.latlng)
-      const rectangle = L.rectangle(bounds, {
-        color: '#dc2626',
-        weight: 2,
-        fillColor: '#ef4444',
-        fillOpacity: 0.2,
-      }).addTo(mapInstance)
-
-      state.selectedRectangle = rectangle
-      setSelectedRectangle(rectangle)
-
-      onBoundsChange({
-        north: Math.max(state.startLatLng.lat, e.latlng.lat),
-        south: Math.min(state.startLatLng.lat, e.latlng.lat),
-        east: Math.max(state.startLatLng.lng, e.latlng.lng),
-        west: Math.min(state.startLatLng.lng, e.latlng.lng),
-      })
-
-      state.startLatLng = null
+      if (mode === 'polygon' && polygonInteractionMode === 'connect' && connectDragStartIndex !== null) {
+        setConnectDragStartIndex(null)
+        setConnectDragLatLng(null)
+        redrawPolygon()
+      }
     }
 
     const onMapClick = (e: L.LeafletMouseEvent) => {
       if (mode !== 'polygon') return
+      if (polygonInteractionMode !== 'move') return
 
       const pState = polygonState.current
       if (pState.vertices.length >= MAX_POLYGON_POINTS) return
 
       pState.vertices.push(e.latlng)
+      autoConnectLatestVertex()
       redrawPolygon()
     }
 
@@ -253,7 +364,7 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
       clearPolygonLayers()
       mapInstance.remove()
     }
-  }, [mode, onBoundsChange])
+  }, [mode, onBoundsChange, polygonInteractionMode, connectDragStartIndex, connectDragLatLng])
 
   const handleReset = () => {
     const actions = (window as any).__rangeSelectorActions
@@ -266,6 +377,9 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
 
     if (actions?.polygonState) {
       actions.polygonState.current.vertices = []
+      actions.polygonState.current.edges = []
+      setConnectDragStartIndex(null)
+      setConnectDragLatLng(null)
       actions.redrawPolygon()
     }
   }
@@ -275,9 +389,18 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
     if (!actions?.polygonState) return
 
     const vertices: L.LatLng[] = actions.polygonState.current.vertices
+    const edges: [number, number][] = actions.polygonState.current.edges
     if (vertices.length === 0) return
 
+    const removedIndex = vertices.length - 1
     vertices.pop()
+    actions.polygonState.current.edges = edges.filter(([start, end]) => start !== removedIndex && end !== removedIndex)
+
+    if (connectDragStartIndex !== null && connectDragStartIndex >= vertices.length) {
+      setConnectDragStartIndex(null)
+      setConnectDragLatLng(null)
+    }
+
     actions.redrawPolygon()
   }
 
@@ -302,13 +425,46 @@ export default function RangeSelectorMap({ onBoundsChange }: RangeSelectorMapPro
       </div>
 
       {mode === 'polygon' && (
-        <div className="grid grid-cols-2 gap-2">
-          <Button type="button" variant="outline" onClick={handleUndoPolygonPoint}>
-            最後の点を削除 ({polygonPointCount}/{MAX_POLYGON_POINTS})
-          </Button>
-          <Button type="button" variant="outline" onClick={handleReset}>
-            ポリゴンをクリア
-          </Button>
+        <div className="space-y-2">
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              type="button"
+              variant={polygonInteractionMode === 'move' ? 'default' : 'outline'}
+              onClick={() => {
+                setPolygonInteractionMode('move')
+                setConnectDragStartIndex(null)
+                setConnectDragLatLng(null)
+              }}
+            >
+              点を移動/追加
+            </Button>
+            <Button
+              type="button"
+              variant={polygonInteractionMode === 'connect' ? 'default' : 'outline'}
+              onClick={() => {
+                setPolygonInteractionMode('connect')
+                setConnectDragStartIndex(null)
+                setConnectDragLatLng(null)
+              }}
+            >
+              線を編集
+            </Button>
+          </div>
+
+          {polygonInteractionMode === 'connect' && (
+            <p className="text-xs text-muted-foreground px-1">
+              点から別の点へドラッグして線を追加。既存の線はクリックで削除できます。
+            </p>
+          )}
+
+          <div className="grid grid-cols-2 gap-2">
+            <Button type="button" variant="outline" onClick={handleUndoPolygonPoint}>
+              最後の点を削除 ({polygonPointCount}/{MAX_POLYGON_POINTS})
+            </Button>
+            <Button type="button" variant="outline" onClick={handleReset}>
+              ポリゴンをクリア
+            </Button>
+          </div>
         </div>
       )}
 
