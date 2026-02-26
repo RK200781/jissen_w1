@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Slider } from '@/components/ui/slider'
-import { Plus, Trash2, PanelRightClose, PanelRightOpen, RefreshCw } from 'lucide-react'
+import { Plus, Trash2, PanelRightClose, PanelRightOpen, RefreshCw, CircleHelp, X } from 'lucide-react'
 import {
   loadMapById,
   saveMapById,
@@ -53,6 +53,7 @@ export default function MapEditor({ mapId, bounds }: MapEditorProps) {
   const [editingFacilityName, setEditingFacilityName] = useState('')
   const svgRef = useRef<SVGSVGElement>(null)
   const [isSavingMap, setIsSavingMap] = useState(false)
+  const [isTutorialOpen, setIsTutorialOpen] = useState(false)
   const router = useRouter()
 
   useEffect(() => {
@@ -388,6 +389,39 @@ out geom;
         </div>
       </div>
 
+
+
+      {isTutorialOpen && (
+        <div className="absolute bottom-24 right-4 z-30 w-[320px] max-w-[calc(100vw-2rem)] rounded-xl border bg-card shadow-lg">
+          <div className="flex items-center justify-between border-b p-3">
+            <p className="font-semibold text-sm">この画面の使い方</p>
+            <button
+              type="button"
+              onClick={() => setIsTutorialOpen(false)}
+              className="rounded p-1 text-muted-foreground hover:bg-muted"
+              aria-label="説明を閉じる"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="p-3 text-sm space-y-2">
+            <p>1. 右上の「道と建物を読み直す」で地図の土台を整えます。</p>
+            <p>2. 「施設」ボタンを押して、目印を追加します。</p>
+            <p>3. 目印は地図上でつかんで動かせます。</p>
+            <p>4. 終わったら「保存して一覧へ戻る」を押します。</p>
+          </div>
+        </div>
+      )}
+
+      <button
+        type="button"
+        onClick={() => setIsTutorialOpen((prev) => !prev)}
+        className="absolute bottom-4 right-4 z-30 h-14 w-14 rounded-full bg-primary text-primary-foreground shadow-lg hover:opacity-90 flex items-center justify-center"
+        aria-label="使い方を開く"
+        title="使い方"
+      >
+        <CircleHelp className="w-7 h-7" />
+      </button>
       {isFacilityPanelOpen && (
         <div className="absolute top-16 right-4 z-20 w-[360px] max-w-[calc(100vw-2rem)] max-h-[calc(100%-5rem)] overflow-hidden rounded-lg border bg-card shadow-lg flex flex-col">
           <div className="p-4 border-b space-y-2">
