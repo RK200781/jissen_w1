@@ -9,12 +9,15 @@ export default function Home() {
       <nav className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
           <div className="text-2xl font-bold">Locap</div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap justify-end">
             <Button asChild>
               <Link href="/dashboard/new-map">地図を作る</Link>
             </Button>
             <Button asChild variant="outline">
               <Link href="/guide">使い方</Link>
+            </Button>
+            <Button asChild variant="outline">
+              <Link href="/about">このサービスについて</Link>
             </Button>
           </div>
         </div>

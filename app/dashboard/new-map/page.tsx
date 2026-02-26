@@ -71,9 +71,14 @@ export default function NewMapPage() {
             <ArrowLeft className="w-4 h-4" />
             一覧に戻る
           </Link>
-          <Link href="/guide" className="text-sm text-primary underline underline-offset-4">
-            使い方を見る
-          </Link>
+          <div className="flex items-center gap-4 text-sm flex-wrap justify-end">
+            <Link href="/guide" className="text-primary underline underline-offset-4">
+              使い方を見る
+            </Link>
+            <Link href="/about" className="text-primary underline underline-offset-4">
+              このサービスについて
+            </Link>
+          </div>
         </div>
       </header>
 
