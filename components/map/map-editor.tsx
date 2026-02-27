@@ -54,6 +54,9 @@ export default function MapEditor({ mapId, bounds }: MapEditorProps) {
   const svgRef = useRef<SVGSVGElement>(null)
   const [isSavingMap, setIsSavingMap] = useState(false)
   const [isTutorialOpen, setIsTutorialOpen] = useState(false)
+  const [facilitySearch, setFacilitySearch] = useState('')
+  const [facilityIconFilter, setFacilityIconFilter] = useState<string>('all')
+  const [hasPendingChanges, setHasPendingChanges] = useState(false)
   const router = useRouter()
 
   useEffect(() => {
@@ -72,6 +75,15 @@ export default function MapEditor({ mapId, bounds }: MapEditorProps) {
 
   const persistMap = (updater: Parameters<typeof saveMapById>[1]) => {
     saveMapById(mapId, updater)
+  }
+
+  const updateFacilities = (updater: (prev: Facility[]) => Facility[]) => {
+    setFacilities((prev) => {
+      const next = updater(prev)
+      persistMap((current) => ({ ...current, facilities: next }))
+      setHasPendingChanges(true)
+      return next
+    })
   }
 
   const mapProjection = useMemo(() => {
@@ -156,6 +168,7 @@ out geom;
       const generated = { roads, buildings }
       setBaseFeatureData(generated)
       persistMap((current) => ({ ...current, baseFeatureData: generated }))
+      setHasPendingChanges(true)
       setMessage(`土台データを生成しました（道路 ${roads.length} / 建物 ${buildings.length}）`)
     } catch {
       setMessage('土台データ生成に失敗しました。時間を置いて再試行してください。')
@@ -189,22 +202,17 @@ out geom;
       }
     })
 
-    setFacilities((prev) => {
-      const next = [...prev, ...facilitiesToAdd]
-      persistMap((current) => ({ ...current, facilities: next }))
-      return next
-    })
+    updateFacilities((prev) => [...prev, ...facilitiesToAdd])
 
     setNewFacilityName('')
     setAddingFacility(false)
   }
 
   const handleDeleteFacility = (facilityId: string) => {
-    setFacilities((prev) => {
-      const next = prev.filter((f) => f.id !== facilityId)
-      persistMap((current) => ({ ...current, facilities: next }))
-      return next
-    })
+    const shouldDelete = window.confirm('この目印を削除しますか？')
+    if (!shouldDelete) return
+
+    updateFacilities((prev) => prev.filter((f) => f.id !== facilityId))
   }
 
   const startEditingFacilityName = (facility: Facility) => {
@@ -221,11 +229,7 @@ out geom;
     const nextName = editingFacilityName.trim()
     if (!nextName) return
 
-    setFacilities((prev) => {
-      const next = prev.map((f) => (f.id === facilityId ? { ...f, name: nextName } : f))
-      persistMap((current) => ({ ...current, facilities: next }))
-      return next
-    })
+    updateFacilities((prev) => prev.map((f) => (f.id === facilityId ? { ...f, name: nextName } : f)))
 
     cancelEditingFacilityName()
   }
@@ -253,11 +257,7 @@ out geom;
     const [lat, lng] = unproject(clampedX, clampedY)
     const location: [number, number] = [lat, lng]
 
-    setFacilities((prev) => {
-      const next = prev.map((f) => (f.id === facilityId ? { ...f, location } : f))
-      persistMap((current) => ({ ...current, facilities: next }))
-      return next
-    })
+    updateFacilities((prev) => prev.map((f) => (f.id === facilityId ? { ...f, location } : f)))
   }
 
 
@@ -271,6 +271,7 @@ out geom;
         facilities,
         baseFeatureData: baseFeatureData ?? undefined,
       }))
+      setHasPendingChanges(false)
 
       router.push('/dashboard')
     } finally {
@@ -280,10 +281,19 @@ out geom;
 
   const roads = baseFeatureData?.roads ?? []
   const buildings = baseFeatureData?.buildings ?? []
+  const trimmedSearch = facilitySearch.trim().toLowerCase()
+  const filteredFacilities = facilities.filter((facility) => {
+    const hitSearch = trimmedSearch.length === 0 || facility.name.toLowerCase().includes(trimmedSearch)
+    const hitIcon = facilityIconFilter === 'all' || facility.icon === facilityIconFilter
+    return hitSearch && hitIcon
+  })
 
   return (
     <div className="relative h-full w-full bg-muted/30">
       <div className="absolute top-4 right-4 z-20 flex gap-2">
+        <div className="hidden sm:flex items-center px-2 py-1 rounded border bg-card text-xs text-muted-foreground">
+          {isSavingMap ? '保存中...' : hasPendingChanges ? '未保存の変更あり' : '保存済み'}
+        </div>
         <Button
           variant="secondary"
           size="sm"
@@ -476,12 +486,43 @@ out geom;
               </Button>
             </form>
 
-            <div className="p-4 border-b text-sm font-semibold">目印の一覧 ({facilities.length})</div>
+            <div className="p-4 border-b space-y-3">
+              <div className="text-sm font-semibold">目印の一覧 ({filteredFacilities.length}/{facilities.length})</div>
+              <Input
+                placeholder="名前で検索"
+                value={facilitySearch}
+                onChange={(e) => setFacilitySearch(e.target.value)}
+              />
+              <div className="grid grid-cols-7 gap-1">
+                <button
+                  type="button"
+                  onClick={() => setFacilityIconFilter('all')}
+                  className={`h-8 rounded border text-xs ${
+                    facilityIconFilter === 'all' ? 'border-primary bg-primary/10' : 'border-muted hover:border-primary/50'
+                  }`}
+                >
+                  すべて
+                </button>
+                {FACILITY_ICONS.map((icon) => (
+                  <button
+                    key={`filter-${icon.value}`}
+                    type="button"
+                    onClick={() => setFacilityIconFilter(icon.value)}
+                    className={`h-8 rounded border ${
+                      facilityIconFilter === icon.value ? 'border-primary bg-primary/10' : 'border-muted hover:border-primary/50'
+                    }`}
+                    title={`${icon.label}で絞り込み`}
+                  >
+                    {icon.value}
+                  </button>
+                ))}
+              </div>
+            </div>
             <div className="p-4 space-y-2">
-              {facilities.length === 0 ? (
+              {filteredFacilities.length === 0 ? (
                 <p className="text-sm text-muted-foreground">まだ目印はありません</p>
               ) : (
-                facilities.map((facility) => (
+                filteredFacilities.map((facility) => (
                   <div key={facility.id} className="p-2 rounded border hover:bg-muted space-y-2">
                     <div className="flex items-center gap-2 min-w-0">
                       <span className="text-lg">{facility.icon}</span>
